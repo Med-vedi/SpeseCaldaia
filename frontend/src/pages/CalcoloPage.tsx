@@ -313,62 +313,82 @@ const CalcoloPage = () => {
   ]
 
   return (
-    <div className="p-6">
-      <Title level={2} className="mb-6">Calcolo</Title>
+    <div className="p-4 md:p-6">
+      <Title level={2} className="mb-4 md:mb-6" style={{ fontSize: '24px' }}>Calcolo</Title>
 
-      <Card className="mb-6">
-        <Title level={4} className="mb-4">CALCOLO SPESE INDIVIDUALI ACQUA CALDA</Title>
-        <div className="mb-4">
-          <Text>
+      <Card className="mb-4 md:mb-6">
+        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">CALCOLO SPESE INDIVIDUALI ACQUA CALDA</Title>
+        <div className="mb-3 md:mb-4">
+          <Text className="text-xs md:text-sm">
             M3 acqua per euro al m3 acqua calda che varia in base al prezzo gasolio. Esempio: prezzo gasolio 1,28 fa m3*(1,28*10)
           </Text>
         </div>
-        <Table
-          columns={hotWaterColumns}
-          dataSource={hotWaterData}
-          pagination={false}
-          bordered
-          size="small"
-        />
+        <div className="overflow-x-auto -mx-4 md:mx-0">
+          <div className="min-w-full px-4 md:px-0">
+            <Table
+              columns={hotWaterColumns}
+              dataSource={hotWaterData}
+              pagination={false}
+              bordered
+              size="small"
+              scroll={{ x: 'max-content' }}
+            />
+          </div>
+        </div>
       </Card>
 
-      <Card className="mb-6">
-        <Title level={4} className="mb-4">CALCOLO COSTO kCal (riscaldamento)</Title>
-        <div className="mb-4">
-          <Text>
+      <Card className="mb-4 md:mb-6">
+        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">CALCOLO COSTO kCal (riscaldamento)</Title>
+        <div className="mb-3 md:mb-4">
+          <Text className="text-xs md:text-sm">
             Al costo totale fattura gasolio sottraggo le spese di funzionamento servizio caldaia e il totale spese acqua calda,
             ciò il resto lo divido per la somma totale dei kCal, ciò di Dino, Vladi, Cristian
           </Text>
         </div>
-        <Table
-          columns={kCalCostColumns}
-          dataSource={kCalCostData}
-          pagination={false}
-          bordered
-          size="small"
-        />
+        <div className="overflow-x-auto -mx-4 md:mx-0">
+          <div className="min-w-full px-4 md:px-0">
+            <Table
+              columns={kCalCostColumns}
+              dataSource={kCalCostData}
+              pagination={false}
+              bordered
+              size="small"
+              scroll={{ x: 'max-content' }}
+            />
+          </div>
+        </div>
       </Card>
 
-      <Card className="mb-6">
-        <Title level={4} className="mb-4">CALCOLO INDIVIDUALE SPESE RISCALDAMENTO</Title>
-        <Table
-          columns={heatingColumns}
-          dataSource={heatingData}
-          pagination={false}
-          bordered
-          size="small"
-        />
+      <Card className="mb-4 md:mb-6">
+        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">CALCOLO INDIVIDUALE SPESE RISCALDAMENTO</Title>
+        <div className="overflow-x-auto -mx-4 md:mx-0">
+          <div className="min-w-full px-4 md:px-0">
+            <Table
+              columns={heatingColumns}
+              dataSource={heatingData}
+              pagination={false}
+              bordered
+              size="small"
+              scroll={{ x: 'max-content' }}
+            />
+          </div>
+        </div>
       </Card>
 
       <Card>
-        <Title level={4} className="mb-4">CALCOLO IMPORTI TOTALI (BONIFICO)</Title>
-        <Table
-          columns={totalColumns}
-          dataSource={totalData}
-          pagination={false}
-          bordered
-          size="small"
-        />
+        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">CALCOLO IMPORTI TOTALI (BONIFICO)</Title>
+        <div className="overflow-x-auto -mx-4 md:mx-0">
+          <div className="min-w-full px-4 md:px-0">
+            <Table
+              columns={totalColumns}
+              dataSource={totalData}
+              pagination={false}
+              bordered
+              size="small"
+              scroll={{ x: 'max-content' }}
+            />
+          </div>
+        </div>
       </Card>
     </div>
   )

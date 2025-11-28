@@ -68,22 +68,23 @@ const PrezziPage = () => {
   ]
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <Title level={2} style={{ margin: 0 }}>Prezzi</Title>
+    <div className="p-4 md:p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 md:mb-6">
+        <Title level={2} style={{ margin: 0, fontSize: '24px' }}>Prezzi</Title>
         {hasChanges && (
-          <Button type="primary" onClick={handleApply}>
+          <Button type="primary" onClick={handleApply} size="large" className="w-full sm:w-auto">
             Applica
           </Button>
         )}
       </div>
-      <Card className="max-w-80">
+      <Card className="max-w-full sm:max-w-80">
         <Table
           columns={columns}
           dataSource={priceData}
           pagination={false}
           bordered
           size="middle"
+          scroll={{ x: 'max-content' }}
         />
       </Card>
     </div>

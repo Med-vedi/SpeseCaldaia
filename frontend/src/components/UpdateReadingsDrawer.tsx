@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import { Drawer, Button, Form, Space, Card, InputNumber, App } from 'antd'
 import { FireOutlined, DropboxOutlined } from '@ant-design/icons'
 import type { KCalRow, M3Row } from '../contexts/ReadingsContext'
@@ -20,6 +20,16 @@ const UpdateReadingsDrawer = ({
 }: UpdateReadingsDrawerProps) => {
   const { message } = App.useApp()
   const [form] = Form.useForm()
+  const [drawerWidth, setDrawerWidth] = useState(480)
+
+  useEffect(() => {
+    const updateWidth = () => {
+      setDrawerWidth(window.innerWidth < 768 ? window.innerWidth : 480)
+    }
+    updateWidth()
+    window.addEventListener('resize', updateWidth)
+    return () => window.removeEventListener('resize', updateWidth)
+  }, [])
 
   const setInitialValues = useCallback(() => {
     const initialValues: Record<string, number> = {}
@@ -141,11 +151,11 @@ const UpdateReadingsDrawer = ({
       placement="right"
       onClose={onClose}
       open={open}
-      size="large"
+      width={drawerWidth}
       extra={
         <Space>
-          <Button onClick={onClose}>Annulla</Button>
-          <Button type="primary" onClick={handleSubmit}>
+          <Button onClick={onClose} size="large">Annulla</Button>
+          <Button type="primary" onClick={handleSubmit} size="large">
             Salva
           </Button>
         </Space>

@@ -5,8 +5,8 @@ const { Title, Text } = Typography
 
 const DashboardPage = () => {
   return (
-    <div className="p-6">
-      <Title level={2} className="mb-6">Dashboard</Title>
+    <div className="p-4 md:p-6">
+      <Title level={2} className="mb-4 md:mb-6" style={{ fontSize: '24px' }}>Dashboard</Title>
       <Card>
         <Title level={3} className="text-center mb-4">🎉 Welcome to Spese Caldaia!</Title>
         <Text className="text-lg text-gray-600 block mb-4 text-center">

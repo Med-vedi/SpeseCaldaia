@@ -70,6 +70,7 @@ const ContattoriPage = () => {
       dataIndex: 'name',
       key: 'name',
       width: 100,
+      fixed: 'left' as const,
     },
     {
       title: "2024 (kCal)",
@@ -100,6 +101,7 @@ const ContattoriPage = () => {
       dataIndex: 'name',
       key: 'name',
       width: 100,
+      fixed: 'left' as const,
     },
     {
       title: "2024 (M³)",
@@ -130,6 +132,7 @@ const ContattoriPage = () => {
       dataIndex: 'name',
       key: 'name',
       width: 100,
+      fixed: 'left' as const,
     },
     {
       title: "2024 (kW)",
@@ -183,70 +186,87 @@ const ContattoriPage = () => {
   }
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <Title level={2} style={{ margin: 0 }}>Lettura contattori</Title>
+    <div className="p-4 md:p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 md:mb-6">
+        <Title level={2} style={{ margin: 0, fontSize: '24px' }}>Lettura contattori</Title>
         <Button
           type="primary"
           icon={<EditOutlined />}
           onClick={handleOpenDrawer}
+          size="large"
+          className="w-full sm:w-auto"
         >
           Aggiorna
         </Button>
       </div>
 
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 md:gap-6">
         <Card
           title={
-            <span>
+            <span className="text-sm md:text-base">
               <FireOutlined style={{ marginRight: 8, color: '#ff4d4f' }} />
               kCal - Contatore Calore
             </span>
           }
         >
-          <Table
-            columns={kCalColumns}
-            dataSource={kCalData}
-            pagination={false}
-            bordered
-            size="small"
-            rowClassName={(record) => record.key === 'totale' ? 'font-semibold' : ''}
-          />
+          <div className="-mx-4 md:mx-0">
+            <div className="px-4 md:px-0">
+              <Table
+                columns={kCalColumns}
+                dataSource={kCalData}
+                pagination={false}
+                bordered
+                size="small"
+                rowClassName={(record) => record.key === 'totale' ? 'font-semibold' : ''}
+                scroll={{ x: 'max-content' }}
+              />
+            </div>
+          </div>
         </Card>
 
         <Card
           title={
-            <span>
+            <span className="text-sm md:text-base">
               <DropboxOutlined style={{ marginRight: 8, color: '#1890ff' }} />
               M³ - Contatore Acqua
             </span>
           }
         >
-          <Table
-            columns={m3Columns}
-            dataSource={m3Data}
-            pagination={false}
-            bordered
-            size="small"
-            rowClassName={(record) => record.key === 'totale' ? 'font-semibold' : ''}
-          />
+          <div className="-mx-4 md:mx-0">
+            <div className="px-4 md:px-0">
+              <Table
+                columns={m3Columns}
+                dataSource={m3Data}
+                pagination={false}
+                bordered
+                size="small"
+                rowClassName={(record) => record.key === 'totale' ? 'font-semibold' : ''}
+                scroll={{ x: 'max-content' }}
+              />
+            </div>
+          </div>
         </Card>
 
         <Card
           title={
-            <span>
+            <span className="text-sm md:text-base">
               <ThunderboltOutlined style={{ marginRight: 8, color: '#faad14' }} />
               kW - Contatore Elettrico
             </span>
           }
         >
-          <Table
-            columns={kWColumns}
-            dataSource={kWData}
-            pagination={false}
-            bordered
-            size="small"
-          />
+          <div className="-mx-4 md:mx-0">
+            <div className="px-4 md:px-0">
+              <Table
+                columns={kWColumns}
+                dataSource={kWData}
+                pagination={false}
+                bordered
+                size="small"
+                scroll={{ x: 'max-content' }}
+              />
+            </div>
+          </div>
         </Card>
       </div>
 

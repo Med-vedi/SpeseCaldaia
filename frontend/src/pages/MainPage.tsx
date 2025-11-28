@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Layout, Menu, Button, Avatar, Dropdown, Typography } from 'antd'
+import { useState, useEffect } from 'react'
+import { Layout, Menu, Button, Avatar, Dropdown, Typography, Drawer } from 'antd'
 import {
   LogoutOutlined,
   UserOutlined,
@@ -26,9 +26,24 @@ const { Title, Text } = Typography
 
 const MainPage = () => {
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768)
+      if (window.innerWidth >= 768) {
+        setMobileDrawerOpen(false)
+      }
+    }
+
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
 
   const handleSignOut = async () => {
     await signOut()
@@ -87,50 +102,42 @@ const MainPage = () => {
 
   const handleMenuClick = (key: string) => {
     navigate(key)
+    if (isMobile) {
+      setMobileDrawerOpen(false)
+    }
   }
 
-  return (
-    <Layout style={{ minHeight: '100vh', height: '100vh', overflow: 'hidden' }}>
-      <Sider
-        collapsed={collapsed}
-        theme="dark"
-        width={240}
+  const menuContent = (
+    <>
+      <div
         style={{
-          background: '#001529',
-          height: '100vh',
-          overflow: 'hidden',
+          padding: '16px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          height: '64px',
           display: 'flex',
-          flexDirection: 'column',
+          alignItems: 'center',
+          flexShrink: 0,
         }}
       >
-        <div
+        <Title level={4} className="text-white m-0" style={{ color: '#fff' }}>
+          {collapsed && !isMobile ? 'SC' : 'Spese Caldaia'}
+        </Title>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+        <Menu
+          mode="inline"
+          theme="dark"
+          selectedKeys={[location.pathname]}
+          items={menuItems}
+          onClick={({ key }) => handleMenuClick(key)}
           style={{
-            padding: '16px',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-            height: '64px',
-            display: 'flex',
-            alignItems: 'center',
-            flexShrink: 0,
+            background: '#001529',
+            borderRight: 0,
+            height: '100%',
           }}
-        >
-          <Title level={4} className="text-white m-0" style={{ color: '#fff' }}>
-            {collapsed ? 'SC' : 'Spese Caldaia'}
-          </Title>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-          <Menu
-            mode="inline"
-            theme="dark"
-            selectedKeys={[location.pathname]}
-            items={menuItems}
-            onClick={({ key }) => handleMenuClick(key)}
-            style={{
-              background: '#001529',
-              borderRight: 0,
-              height: '100%',
-            }}
-          />
-        </div>
+        />
+      </div>
+      {!isMobile && (
         <div
           style={{
             padding: '16px',
@@ -152,13 +159,54 @@ const MainPage = () => {
             }}
           />
         </div>
-      </Sider>
+      )}
+    </>
+  )
 
+  return (
+    <Layout style={{ minHeight: '100vh', height: '100vh', overflow: 'hidden' }}>
+      {!isMobile && (
+        <Sider
+          collapsed={collapsed}
+          theme="dark"
+          width={240}
+          style={{
+            background: '#001529',
+            height: '100vh',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {menuContent}
+        </Sider>
+      )}
+
+      {isMobile && (
+        <Drawer
+          title="Spese Caldaia"
+          placement="left"
+          onClose={() => setMobileDrawerOpen(false)}
+          open={mobileDrawerOpen}
+          bodyStyle={{ padding: 0 }}
+          width={280}
+          style={{ zIndex: 1001 }}
+        >
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            background: '#001529'
+          }}>
+            {menuContent}
+          </div>
+        </Drawer>
+      )}
       <Layout style={{ height: '100vh', overflow: 'hidden' }}>
         <Header
           style={{
             background: '#001529',
-            padding: '0 24px',
+            padding: isMobile ? '0 16px' : '0 24px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
@@ -166,17 +214,30 @@ const MainPage = () => {
             lineHeight: '64px',
           }}
         >
-          <Title level={4} style={{ color: '#fff', margin: 0 }}>
-            Spese Caldaia
-          </Title>
-
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <Text style={{ color: '#fff' }}>
-              Welcome, {user?.email ? user.email.split('@')[0] : 'User'}
-            </Text>
+            {isMobile && (
+              <Button
+                type="text"
+                icon={<MenuUnfoldOutlined />}
+                onClick={() => setMobileDrawerOpen(true)}
+                style={{
+                  color: '#fff',
+                  fontSize: '18px',
+                  padding: '4px 8px',
+                }}
+              />
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '16px' }}>
+            {!isMobile && (
+              <Text style={{ color: '#fff' }}>
+                Welcome, {user?.email ? user.email.split('@')[0] : 'User'}
+              </Text>
+            )}
             <Dropdown menu={{ items: userMenuItems }} trigger={['click']}>
               <Avatar
-                size="large"
+                size={isMobile ? 'default' : 'large'}
                 icon={<UserOutlined />}
                 className="cursor-pointer"
                 style={{ backgroundColor: '#1890ff' }}
