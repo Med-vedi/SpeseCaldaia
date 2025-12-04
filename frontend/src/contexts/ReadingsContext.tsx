@@ -72,8 +72,11 @@ interface ReadingsContextType {
   prices: Prices
   expenses: Expenses
   loading: boolean
+  allCounterValues: import('../store/api/models').CounterValue[]
+  counters: import('../store/api/models').Counter[]
+  getAvailableYears: () => number[]
   updateCounterValues: (params: UpdateCounterValueParams) => Promise<void>
-  updateReadings: (values: Record<string, number>) => void
+  updateReadings: (values: Record<string, number>, year: number) => void
   updatePrice: (key: keyof Prices, value: number) => void
   updateExpense: (key: keyof Expenses, value: number) => void
   getTotalExpensesPerUser: () => number
@@ -218,7 +221,7 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     value: number
   ) => {
     try {
-      const existingValue = [...currentYearValues, ...previousYearValues].find(
+      const existingValue = allCounterValues.find(
         v => v.counter_id === counterId && v.year === year
       )
 
@@ -238,7 +241,7 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
       console.error('Error saving counter value:', error)
       throw error
     }
-  }, [currentYearValues, previousYearValues, createCounterValue, updateCounterValue])
+  }, [allCounterValues, createCounterValue, updateCounterValue])
 
   const updateCounterValues = useCallback(async ({
     counterType,
@@ -262,7 +265,15 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     }
   }, [counters, saveCounterValue])
 
-  const updateReadings = useCallback(async (values: Record<string, number>) => {
+  const getAvailableYears = useCallback(() => {
+    const years = new Set<number>()
+    allCounterValues.forEach(cv => years.add(cv.year))
+    // Always include current year even if no values exist
+    years.add(currentYear)
+    return Array.from(years).sort((a, b) => b - a) // Sort descending
+  }, [allCounterValues, currentYear])
+
+  const updateReadings = useCallback(async (values: Record<string, number>, year: number) => {
     const ReadingType = {
       KCAL: '_kCal',
       M3: '_m3',
@@ -293,7 +304,7 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
             await updateCounterValues({
               counterType: row.counterType,
               counterId: row.counterId,
-              year: currentYear,
+              year,
               value,
             })
           }
@@ -305,7 +316,7 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
             await updateCounterValues({
               counterType: row.counterType,
               counterId: row.counterId,
-              year: currentYear,
+              year,
               value,
             })
           }
@@ -317,7 +328,7 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     await Promise.all(
       Object.entries(values).map(([key, value]) => updateSingleReading(key, value))
     )
-  }, [kCalData, m3Data, currentYear, updateCounterValues])
+  }, [kCalData, m3Data, updateCounterValues])
 
   const updatePrice = useCallback((key: keyof Prices, value: number) => {
     setPrices(prev => ({ ...prev, [key]: value }))
@@ -361,6 +372,9 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     prices,
     expenses,
     loading,
+    allCounterValues,
+    counters,
+    getAvailableYears,
     updateCounterValues,
     updateReadings,
     updatePrice,

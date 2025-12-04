@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Card, Typography, Table, InputNumber, Button } from 'antd'
+import { useState, useRef } from 'react'
+import { Card, Typography, Table, InputNumber, Button, Modal } from 'antd'
 import { FireOutlined, DropboxOutlined, ThunderboltOutlined, EditOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { useReadings, type KCalRow, type M3Row, type KWRow } from '../contexts/ReadingsContext'
@@ -8,97 +8,254 @@ import UpdateReadingsDrawer from '../components/UpdateReadingsDrawer'
 const { Title } = Typography
 
 const ContattoriPage = () => {
-  const { kCalData, m3Data, kWData, updateCounterValues, updateReadings } = useReadings()
+  const { kCalData, m3Data, kWData, updateCounterValues, updateReadings, allCounterValues, counters, getAvailableYears } = useReadings()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const currentYear = new Date().getFullYear()
   const previousYear = currentYear - 1
 
+  // Store pending values to override displayed values
+  const [pendingValues, setPendingValues] = useState<Record<string, number | null>>({})
+  const pendingUpdateRef = useRef<{
+    counterId: string
+    counterType: string
+    year: number
+    newValue: number | null
+    originalValue: number | null
+    inputKey: string
+  } | null>(null)
+
+  const getValueKey = (counterId: string | undefined, year: number): string => {
+    return counterId ? `${counterId}_${year}` : ''
+  }
+
+  const getDisplayValue = (counterId: string | undefined, year: number, originalValue: number | null): number | null => {
+    if (!counterId) return originalValue
+    const key = getValueKey(counterId, year)
+    return pendingValues[key] !== undefined ? pendingValues[key] : originalValue
+  }
+
+  const handleConfirmUpdate = () => {
+    if (pendingUpdateRef.current) {
+      const { counterId, counterType, year, newValue } = pendingUpdateRef.current
+      if (newValue !== null) {
+        updateCounterValues({
+          counterType: counterType as any,
+          counterId,
+          year,
+          value: newValue,
+        })
+      }
+      // Clear pending value
+      const key = getValueKey(counterId, year)
+      setPendingValues(prev => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+      pendingUpdateRef.current = null
+    }
+  }
+
+  const handleCancelUpdate = () => {
+    if (pendingUpdateRef.current) {
+      // Reset to original value by clearing pending value
+      const { counterId, year } = pendingUpdateRef.current
+      const key = getValueKey(counterId, year)
+      setPendingValues(prev => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+      pendingUpdateRef.current = null
+    }
+  }
+
+  const handleInputBlur = (
+    counterId: string,
+    counterType: string,
+    year: number,
+    newValue: number | null,
+    originalValue: number | null,
+    precision: number = 1
+  ) => {
+    // Only show confirmation if value actually changed
+    if (newValue !== originalValue && newValue !== null) {
+      const key = getValueKey(counterId, year)
+      pendingUpdateRef.current = {
+        counterId,
+        counterType,
+        year,
+        newValue,
+        originalValue,
+        inputKey: key,
+      }
+
+      // Store pending value to show in input
+      setPendingValues(prev => ({ ...prev, [key]: newValue }))
+
+      const formatValue = (val: number | null) => {
+        if (val === null) return 'N/A'
+        return precision === 0 ? val.toFixed(0) : val.toFixed(precision)
+      }
+
+      Modal.confirm({
+        title: 'Conferma aggiornamento',
+        content: `Vuoi aggiornare il valore da ${formatValue(originalValue)} a ${formatValue(newValue)}?`,
+        okText: 'Conferma',
+        cancelText: 'Annulla',
+        centered: true,
+        onOk: handleConfirmUpdate,
+        onCancel: handleCancelUpdate,
+      })
+    }
+  }
+
   const renderKCalPrec = (value: number | null, record: KCalRow) => {
     const isTotal = record.key === 'totale'
-    return isTotal
-      ? <span>{value?.toFixed(1) || ''}</span>
-      : <InputNumber
-        value={value}
+    if (isTotal) {
+      return <span>{value?.toFixed(1) || ''}</span>
+    }
+
+    const displayValue = getDisplayValue(record.counterId, previousYear, value)
+
+    return (
+      <InputNumber
+        value={displayValue}
         onChange={(val) => {
+          // Update pending value immediately for display
+          if (record.counterId) {
+            const key = getValueKey(record.counterId, previousYear)
+            setPendingValues(prev => ({ ...prev, [key]: val }))
+          }
+        }}
+        onBlur={(e) => {
           if (record.counterId && record.counterType) {
-            updateCounterValues({
-              counterType: record.counterType,
-              counterId: record.counterId,
-              year: previousYear,
-              value: val,
-            })
+            handleInputBlur(
+              record.counterId,
+              record.counterType,
+              previousYear,
+              displayValue,
+              value,
+              1 // precision for kCal
+            )
           }
         }}
         style={{ width: '100%' }}
         precision={1}
         controls={false}
       />
+    )
   }
 
   const renderKCalAtt = (value: number | null, record: KCalRow) => {
     const isTotal = record.key === 'totale'
-    return isTotal
-      ? <span>{value?.toFixed(1) || ''}</span>
-      : <InputNumber
-        value={value}
+    if (isTotal) {
+      return <span>{value?.toFixed(1) || ''}</span>
+    }
+
+    const displayValue = getDisplayValue(record.counterId, currentYear, value)
+
+    return (
+      <InputNumber
+        value={displayValue}
         onChange={(val) => {
+          // Update pending value immediately for display
+          if (record.counterId) {
+            const key = getValueKey(record.counterId, currentYear)
+            setPendingValues(prev => ({ ...prev, [key]: val }))
+          }
+        }}
+        onBlur={(e) => {
           if (record.counterId && record.counterType) {
-            updateCounterValues({
-              counterType: record.counterType,
-              counterId: record.counterId,
-              year: currentYear,
-              value: val,
-            })
+            handleInputBlur(
+              record.counterId,
+              record.counterType,
+              currentYear,
+              displayValue,
+              value,
+              1 // precision for kCal
+            )
           }
         }}
         style={{ width: '100%' }}
         precision={1}
         controls={false}
       />
+    )
   }
 
   const renderM3Prec = (value: number | null, record: M3Row) => {
     const isTotal = record.key === 'totale'
-    return isTotal
-      ? <span>-</span>
-      : <InputNumber
-        value={value}
+    if (isTotal) {
+      return <span>-</span>
+    }
+
+    const displayValue = getDisplayValue(record.counterId, previousYear, value)
+
+    return (
+      <InputNumber
+        value={displayValue}
         onChange={(val) => {
+          // Update pending value immediately for display
+          if (record.counterId) {
+            const key = getValueKey(record.counterId, previousYear)
+            setPendingValues(prev => ({ ...prev, [key]: val }))
+          }
+        }}
+        onBlur={(e) => {
           if (record.counterId && record.counterType) {
-            updateCounterValues({
-              counterType: record.counterType,
-              counterId: record.counterId,
-              year: previousYear,
-              value: val,
-            })
+            handleInputBlur(
+              record.counterId,
+              record.counterType,
+              previousYear,
+              displayValue,
+              value,
+              0 // precision for m3
+            )
           }
         }}
         style={{ width: '100%' }}
         precision={0}
         controls={false}
       />
+    )
   }
 
   const renderM3Att = (value: number | null, record: M3Row) => {
     const isTotal = record.key === 'totale'
-    return isTotal
-      ? <span>-</span>
-      : <InputNumber
-        value={value}
+    if (isTotal) {
+      return <span>-</span>
+    }
+
+    const displayValue = getDisplayValue(record.counterId, currentYear, value)
+
+    return (
+      <InputNumber
+        value={displayValue}
         onChange={(val) => {
+          // Update pending value immediately for display
+          if (record.counterId) {
+            const key = getValueKey(record.counterId, currentYear)
+            setPendingValues(prev => ({ ...prev, [key]: val }))
+          }
+        }}
+        onBlur={(e) => {
           if (record.counterId && record.counterType) {
-            updateCounterValues({
-              counterType: record.counterType,
-              counterId: record.counterId,
-              year: currentYear,
-              value: val,
-            })
+            handleInputBlur(
+              record.counterId,
+              record.counterType,
+              currentYear,
+              displayValue,
+              value,
+              0 // precision for m3
+            )
           }
         }}
         style={{ width: '100%' }}
         precision={0}
         controls={false}
       />
+    )
   }
 
   const kCalColumns: ColumnsType<KCalRow> = [
@@ -176,48 +333,72 @@ const ContattoriPage = () => {
       dataIndex: 'kWPrec',
       key: 'kWPrec',
       width: 120,
-      render: (value: number | null, record) => (
-        <InputNumber
-          value={value}
-          onChange={(val) => {
-            if (record.counterId && record.counterType) {
-              updateCounterValues({
-                counterType: record.counterType,
-                counterId: record.counterId,
-                year: previousYear,
-                value: val,
-              })
-            }
-          }}
-          style={{ width: '100%' }}
-          precision={1}
-          controls={false}
-        />
-      ),
+      render: (value: number | null, record: KWRow) => {
+        const displayValue = getDisplayValue(record.counterId, previousYear, value)
+
+        return (
+          <InputNumber
+            value={displayValue}
+            onChange={(val) => {
+              // Update pending value immediately for display
+              if (record.counterId) {
+                const key = getValueKey(record.counterId, previousYear)
+                setPendingValues(prev => ({ ...prev, [key]: val }))
+              }
+            }}
+            onBlur={(e) => {
+              if (record.counterId && record.counterType) {
+                handleInputBlur(
+                  record.counterId,
+                  record.counterType,
+                  previousYear,
+                  displayValue,
+                  value
+                )
+              }
+            }}
+            style={{ width: '100%' }}
+            precision={1}
+            controls={false}
+          />
+        )
+      },
     },
     {
       title: "2025 (kW)",
       dataIndex: 'kWAtt',
       key: 'kWAtt',
       width: 120,
-      render: (value: number | null, record) => (
-        <InputNumber
-          value={value}
-          onChange={(val) => {
-            if (record.counterId && record.counterType) {
-              updateCounterValues({
-                counterType: record.counterType,
-                counterId: record.counterId,
-                year: currentYear,
-                value: val,
-              })
-            }
-          }}
-          style={{ width: '100%' }}
-          precision={1}
-          controls={false}
-        />
-      ),
+      render: (value: number | null, record: KWRow) => {
+        const displayValue = getDisplayValue(record.counterId, currentYear, value)
+
+        return (
+          <InputNumber
+            value={displayValue}
+            onChange={(val) => {
+              // Update pending value immediately for display
+              if (record.counterId) {
+                const key = getValueKey(record.counterId, currentYear)
+                setPendingValues(prev => ({ ...prev, [key]: val }))
+              }
+            }}
+            onBlur={(e) => {
+              if (record.counterId && record.counterType) {
+                handleInputBlur(
+                  record.counterId,
+                  record.counterType,
+                  currentYear,
+                  displayValue,
+                  value
+                )
+              }
+            }}
+            style={{ width: '100%' }}
+            precision={1}
+            controls={false}
+          />
+        )
+      },
     },
     {
       title: 'Differenza (kW)',
@@ -236,8 +417,8 @@ const ContattoriPage = () => {
     setDrawerOpen(false)
   }
 
-  const handleUpdateReadings = (values: Record<string, number>) => {
-    updateReadings(values)
+  const handleUpdateReadings = (values: Record<string, number>, year: number) => {
+    updateReadings(values, year)
   }
 
   return (
@@ -330,6 +511,9 @@ const ContattoriPage = () => {
         onClose={handleCloseDrawer}
         kCalData={kCalData}
         m3Data={m3Data}
+        allCounterValues={allCounterValues}
+        counters={counters}
+        availableYears={getAvailableYears()}
         onUpdate={handleUpdateReadings}
       />
     </div>
