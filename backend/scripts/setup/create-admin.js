@@ -51,13 +51,25 @@ async function createAdminUser() {
 async function createUserProfile(userId) {
   console.log('Creating user profile...')
 
+  // Get user email from auth
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    console.error('Error getting user:', userError)
+    return
+  }
+
   const { error: profileError } = await supabase
     .from('users')
     .insert({
       id: userId,
+      email: user.email,
       username: 'admin',
-      organization_id: 'default-org',
-      role: 'admin'
+      user_key: 'admin', // Unique identifier
+      role: 'master', // Can be 'master' or null
+      type: 'admin', // Must be 'admin', 'user', or 'guest'
+      full_name: 'Administrator',
+      is_active: true
     })
 
   if (profileError) {

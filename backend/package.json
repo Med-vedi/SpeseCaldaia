@@ -4,7 +4,16 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "setup": "node scripts/setup/setup.js",
+    "create-admin": "node scripts/setup/create-admin.js",
+    "create-users": "node scripts/setup/create-users.js",
+    "db:reset": "supabase db reset",
+    "db:push": "supabase db push",
+    "db:migrate": "supabase migration up",
+    "start": "supabase start",
+    "stop": "supabase stop",
+    "status": "supabase status"
   },
   "keywords": [],
   "author": "",

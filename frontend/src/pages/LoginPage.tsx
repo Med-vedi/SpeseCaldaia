@@ -20,8 +20,11 @@ const LoginPage = () => {
   const onFinish = async (values: LoginForm) => {
     setLoading(true)
     try {
-      // For this simple app, we'll use email format for username
-      const email = `${values.username}@app.local`
+      // Check if username is already an email (contains @)
+      // If not, treat it as username and append @app.local for backward compatibility
+      const email = values.username.includes('@')
+        ? values.username
+        : `${values.username}@app.local`
       const { error } = await signIn(email, values.password)
 
       if (error) {
@@ -60,11 +63,11 @@ const LoginPage = () => {
         >
           <Form.Item
             name="username"
-            rules={[{ required: true, message: 'Please input your username!' }]}
+            rules={[{ required: true, message: 'Please input your email or username!' }]}
           >
             <Input
               prefix={<UserOutlined className="text-gray-400" />}
-              placeholder="Username"
+              placeholder="Email address (e.g., medvedivladislav@gmail.com)"
               className="rounded-lg"
             />
           </Form.Item>
@@ -94,9 +97,7 @@ const LoginPage = () => {
         </Form>
 
         <div className="text-center text-sm text-gray-500 mt-6">
-          <p>Demo credentials:</p>
-          <p><strong>Username:</strong> admin</p>
-          <p><strong>Password:</strong> admin12!</p>
+          <p>Enter your email address to sign in</p>
         </div>
       </Card>
     </div>

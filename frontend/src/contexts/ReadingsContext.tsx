@@ -1,4 +1,13 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
+import { useAuth } from '../hooks/useAuth'
+import { fetchCounterReadings } from '../api/counterReadingsApi'
+import { fetchActivePrices } from '../api/pricesApi'
+import { fetchExpenses } from '../api/expensesApi'
+import { fetchUsersByIds, getUserByKey } from '../api/usersApi'
+import { transformCounterReadings, transformPrices, transformExpenses } from '../utils/dataTransformers'
+import { upsertCounterReading, getCounterReading } from '../api/counterReadingsApi'
+import { createPrice } from '../api/pricesApi'
+import { upsertExpense } from '../api/expensesApi'
 
 export interface KCalRow {
   key: string
@@ -43,13 +52,19 @@ interface ReadingsContextType {
   kWData: KWRow[]
   prices: Prices
   expenses: Expenses
-  updateKCalData: (key: string, field: 'kCalPrec' | 'kCalAtt', value: number | null) => void
-  updateM3Data: (key: string, field: 'm3Prec' | 'm3Att', value: number | null) => void
-  updateKWData: (key: string, field: 'kWPrec' | 'kWAtt', value: number | null) => void
-  updateReadings: (values: Record<string, number>) => void
-  updatePrice: (key: keyof Prices, value: number) => void
-  updateExpense: (key: keyof Expenses, value: number) => void
+  loading: boolean
+  error: string | null
+  isAdmin: boolean
+  currentUserKey: string | null
+  refreshData: () => Promise<void>
+  updateKCalData: (key: string, field: 'kCalPrec' | 'kCalAtt', value: number | null) => Promise<void>
+  updateM3Data: (key: string, field: 'm3Prec' | 'm3Att', value: number | null) => Promise<void>
+  updateKWData: (key: string, field: 'kWPrec' | 'kWAtt', value: number | null) => Promise<void>
+  updateReadings: (values: Record<string, number>) => Promise<void>
+  updatePrice: (key: keyof Prices, value: number) => Promise<void>
+  updateExpense: (key: keyof Expenses, value: number) => Promise<void>
   getTotalExpensesPerUser: () => number
+  canEditUser: (userKey: string) => boolean
 }
 
 const ReadingsContext = createContext<ReadingsContextType | undefined>(undefined)
@@ -66,224 +81,263 @@ interface ReadingsProviderProps {
   children: ReactNode
 }
 
-const calculateDifference = (prec: number | null, att: number | null): number => {
-  if (prec === null || att === null) return 0
-  return att - prec
-}
+const getCurrentYear = () => new Date().getFullYear()
 
 export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
-  const [kCalData, setKCalData] = useState<KCalRow[]>([
-    { key: 'vladi', name: 'Vladi', kCalPrec: 124637.7, kCalAtt: 125769.7, differenza: 1132 },
-    { key: 'dino', name: 'Dino', kCalPrec: 80818.7, kCalAtt: 82048.3, differenza: 1229.6 },
-    { key: 'cristian', name: 'Cristian', kCalPrec: 86479, kCalAtt: 86479, differenza: 0 },
-    { key: 'totale', name: 'Totale', kCalPrec: 291935.4, kCalAtt: 294297, differenza: 2361.6 },
-  ])
-
-  const [m3Data, setM3Data] = useState<M3Row[]>([
-    { key: 'vladi', name: 'Vladi', m3Prec: 390, m3Att: 422, differenza: 32 },
-    { key: 'dino', name: 'Dino', m3Prec: 782, m3Att: 830, differenza: 48 },
-    { key: 'cristian', name: 'Cristian', m3Prec: 342, m3Att: 359, differenza: 17 },
-    { key: 'totale', name: 'Totale', m3Prec: null, m3Att: null, differenza: 97 },
-  ])
-
-  const [kWData, setKWData] = useState<KWRow[]>([
-    { key: 'comune', name: 'Comune', kWPrec: 2861, kWAtt: 3192.3, differenza: 331.3 },
-  ])
-
+  const { user, userProfile, isAdmin, organizationId } = useAuth()
+  const [kCalData, setKCalData] = useState<KCalRow[]>([])
+  const [m3Data, setM3Data] = useState<M3Row[]>([])
+  const [kWData, setKWData] = useState<KWRow[]>([])
   const [prices, setPrices] = useState<Prices>({
     gasolio: 1.28,
     acqua: 2,
     corrente: 0.14,
   })
-
   const [expenses, setExpenses] = useState<Expenses>({
-    prezzoGasolio: prices.gasolio,
+    prezzoGasolio: 1.28,
     fatturaGasolio: 1280,
     manutenzione: 120,
     corrente: 46.4,
   })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const updateKCalData = useCallback((key: string, field: 'kCalPrec' | 'kCalAtt', value: number | null) => {
-    setKCalData(prevData => {
-      const newData = prevData.map(row => {
-        const isTarget = row.key === key
-        const isTotal = key === 'totale'
+  const currentUserKey = userProfile?.user_key || null
+  const lastLoadedOrgIdRef = useRef<string | null>(null)
+  const isLoadingRef = useRef(false)
 
-        const updated = isTarget
-          ? { ...row, [field]: value }
-          : row
+  // Fetch and transform counter readings
+  const fetchCounterReadingsData = useCallback(async (orgId: string) => {
+    const currentYear = getCurrentYear()
+    const previousYear = currentYear - 1
 
-        const shouldRecalc = isTarget && (isTotal || !isTotal)
-        updated.differenza = shouldRecalc
-          ? calculateDifference(updated.kCalPrec, updated.kCalAtt)
-          : updated.differenza
+    const readings = await fetchCounterReadings(orgId, [currentYear, previousYear])
+    if (readings.length === 0) {
+      setKCalData([])
+      setM3Data([])
+      setKWData([])
+      return
+    }
 
-        return updated
-      })
+    // Get unique user IDs and fetch user profiles
+    const uniqueUserIds = [...new Set(readings.map(r => r.user_id).filter(Boolean))]
+    const users = await fetchUsersByIds(uniqueUserIds, orgId)
 
-      const totale = newData.find(r => r.key === 'totale')
-      if (totale) {
-        const individuals = newData.filter(r => r.key !== 'totale')
-        const precSum = individuals.reduce((sum, r) => sum + (r.kCalPrec || 0), 0)
-        const attSum = individuals.reduce((sum, r) => sum + (r.kCalAtt || 0), 0)
-        totale.kCalPrec = precSum
-        totale.kCalAtt = attSum
-        totale.differenza = calculateDifference(totale.kCalPrec, totale.kCalAtt)
-      }
-
-      return newData
-    })
+    // Transform readings to frontend format
+    const transformed = transformCounterReadings(readings, users, currentYear, previousYear)
+    setKCalData(transformed.kCalData)
+    setM3Data(transformed.m3Data)
+    setKWData(transformed.kWData)
   }, [])
 
-  const updateM3Data = useCallback((key: string, field: 'm3Prec' | 'm3Att', value: number | null) => {
-    setM3Data(prevData => {
-      const newData = prevData.map(row => {
-        const isTarget = row.key === key
-        const isTotal = key === 'totale'
-
-        const updated = isTarget
-          ? { ...row, [field]: value }
-          : row
-
-        const shouldRecalc = isTarget && !isTotal
-        updated.differenza = shouldRecalc
-          ? calculateDifference(updated.m3Prec, updated.m3Att)
-          : updated.differenza
-
-        return updated
-      })
-
-      const totale = newData.find(r => r.key === 'totale')
-      if (totale) {
-        const individuals = newData.filter(r => r.key !== 'totale')
-        const diffSum = individuals.reduce((sum, r) => sum + r.differenza, 0)
-        totale.differenza = diffSum
-      }
-
-      return newData
-    })
+  // Fetch and transform prices
+  const fetchPricesData = useCallback(async (orgId: string) => {
+    const pricesData = await fetchActivePrices(orgId)
+    const transformed = transformPrices(pricesData)
+    setPrices(transformed)
   }, [])
 
-  const updateKWData = useCallback((key: string, field: 'kWPrec' | 'kWAtt', value: number | null) => {
-    setKWData(prevData => {
-      return prevData.map(row => {
-        const isTarget = row.key === key
-        const updated = isTarget
-          ? { ...row, [field]: value }
-          : row
-
-        updated.differenza = isTarget
-          ? calculateDifference(updated.kWPrec, updated.kWAtt)
-          : updated.differenza
-
-        return updated
-      })
-    })
+  // Fetch and transform expenses
+  const fetchExpensesData = useCallback(async (orgId: string) => {
+    const currentYear = getCurrentYear()
+    const expensesData = await fetchExpenses(orgId, currentYear)
+    const transformed = transformExpenses(expensesData)
+    setExpenses(transformed)
   }, [])
 
-  const updateReadings = useCallback((values: Record<string, number>) => {
+  // Load all data
+  const loadData = useCallback(async () => {
+    const orgId = organizationId || userProfile?.organization_id || '0'
+    if (!orgId) return
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      await Promise.allSettled([
+        fetchCounterReadingsData(orgId),
+        fetchPricesData(orgId),
+        fetchExpensesData(orgId),
+      ])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load data')
+    } finally {
+      setLoading(false)
+    }
+  }, [organizationId, userProfile?.organization_id, fetchCounterReadingsData, fetchPricesData, fetchExpensesData])
+
+  // Load data when organization ID is available
+  useEffect(() => {
+    const orgId = organizationId || userProfile?.organization_id || (userProfile ? '0' : null)
+
+    if (user && !userProfile) {
+      // Wait for profile
+      const timeout = setTimeout(() => {
+        if (!isLoadingRef.current && lastLoadedOrgIdRef.current !== '0') {
+          lastLoadedOrgIdRef.current = '0'
+          isLoadingRef.current = true
+          loadData().finally(() => {
+            isLoadingRef.current = false
+          })
+        }
+      }, 500)
+      return () => clearTimeout(timeout)
+    }
+
+    if (orgId && orgId !== lastLoadedOrgIdRef.current && !isLoadingRef.current) {
+      lastLoadedOrgIdRef.current = orgId
+      isLoadingRef.current = true
+      loadData().finally(() => {
+        isLoadingRef.current = false
+      })
+    } else if (!user) {
+      lastLoadedOrgIdRef.current = null
+      setLoading(false)
+    }
+  }, [organizationId, userProfile, user, loadData])
+
+  const refreshData = useCallback(async () => {
+    await loadData()
+  }, [loadData])
+
+  // Update counter reading
+  const updateCounterReading = useCallback(async (
+    userKey: string,
+    readingType: 'kcal' | 'm3' | 'kw',
+    field: 'kCalPrec' | 'kCalAtt' | 'm3Prec' | 'm3Att' | 'kWPrec' | 'kWAtt',
+    value: number | null
+  ) => {
+    if (!organizationId || !user?.id) {
+      throw new Error('No organization_id or user - cannot update readings')
+    }
+
+    // Get user ID - must be in same organization
+    const userData = await getUserByKey(userKey, organizationId)
+
+    if (!userData) {
+      throw new Error(`User not found or not in your organization: ${userKey}`)
+    }
+
+    // Check permissions
+    if (!isAdmin && userData.id !== user.id) {
+      throw new Error('You can only update your own counter readings')
+    }
+
+    const currentYear = getCurrentYear()
+    const previousYear = currentYear - 1
+    const isPrevious = field.includes('Prec')
+    const targetYear = isPrevious ? previousYear : currentYear
+
+    // Check if reading exists
+    const existing = await getCounterReading(userData.id, readingType, targetYear)
+
+    await upsertCounterReading({
+      user_id: userData.id,
+      reading_type: readingType,
+      period_year: targetYear,
+      value: value ?? 0,
+      period_label: String(targetYear),
+      created_by: !existing ? user.id : undefined,
+      updated_by: user.id,
+    })
+    await fetchCounterReadingsData(organizationId)
+  }, [fetchCounterReadingsData, isAdmin, organizationId, user])
+
+  const updateKCalData = useCallback(async (key: string, field: 'kCalPrec' | 'kCalAtt', value: number | null) => {
+    if (key === 'totale') return
+    await updateCounterReading(key, 'kcal', field, value)
+  }, [updateCounterReading])
+
+  const updateM3Data = useCallback(async (key: string, field: 'm3Prec' | 'm3Att', value: number | null) => {
+    if (key === 'totale') return
+    await updateCounterReading(key, 'm3', field, value)
+  }, [updateCounterReading])
+
+  const updateKWData = useCallback(async (_key: string, field: 'kWPrec' | 'kWAtt', value: number | null) => {
+    await updateCounterReading('dino', 'kw', field, value)
+  }, [updateCounterReading])
+
+  const updateReadings = useCallback(async (values: Record<string, number>) => {
     const users = ['vladi', 'dino', 'cristian']
-
-    // Update kCal data
-    setKCalData(prevKCalData => {
-      const newKCalData = prevKCalData.map(row => {
-        const isUser = users.includes(row.key)
-        const isTotal = row.key === 'totale'
-
-        const shouldUpdate = isUser && values[`${row.key}_kCal`] !== undefined
-        const newValue = shouldUpdate ? values[`${row.key}_kCal`] : row.kCalAtt
-
-        const updated = shouldUpdate
-          ? { ...row, kCalAtt: newValue }
-          : row
-
-        const shouldRecalcDiff = isUser || isTotal
-        updated.differenza = shouldRecalcDiff
-          ? calculateDifference(updated.kCalPrec, updated.kCalAtt)
-          : updated.differenza
-
-        return updated
-      })
-
-      // Recalculate totals
-      const totale = newKCalData.find(r => r.key === 'totale')
-      if (totale) {
-        const individuals = newKCalData.filter(r => r.key !== 'totale')
-        const precSum = individuals.reduce((sum, r) => sum + (r.kCalPrec || 0), 0)
-        const attSum = individuals.reduce((sum, r) => sum + (r.kCalAtt || 0), 0)
-        totale.kCalPrec = precSum
-        totale.kCalAtt = attSum
-        totale.differenza = calculateDifference(totale.kCalPrec, totale.kCalAtt)
+    for (const userKey of users) {
+      if (values[`${userKey}_kCal`] !== undefined) {
+        await updateCounterReading(userKey, 'kcal', 'kCalAtt', values[`${userKey}_kCal`])
       }
+      if (values[`${userKey}_m3`] !== undefined) {
+        await updateCounterReading(userKey, 'm3', 'm3Att', values[`${userKey}_m3`])
+      }
+    }
+  }, [updateCounterReading])
 
-      return newKCalData
+  const updatePrice = useCallback(async (key: keyof Prices, value: number) => {
+    if (!user?.id) throw new Error('No user - cannot update price')
+
+    await createPrice({
+      price_type: key,
+      value,
+      created_by: user.id,
+      updated_by: user.id,
     })
 
-    // Update M3 data
-    setM3Data(prevM3Data => {
-      const newM3Data = prevM3Data.map(row => {
-        const isUser = users.includes(row.key)
-        const isTotal = row.key === 'totale'
-
-        const shouldUpdate = isUser && values[`${row.key}_m3`] !== undefined
-        const newValue = shouldUpdate ? values[`${row.key}_m3`] : row.m3Att
-
-        const updated = shouldUpdate
-          ? { ...row, m3Att: newValue }
-          : row
-
-        const shouldRecalcDiff = isUser && !isTotal
-        updated.differenza = shouldRecalcDiff
-          ? calculateDifference(updated.m3Prec, updated.m3Att)
-          : updated.differenza
-
-        return updated
-      })
-
-      // Recalculate total difference
-      const totale = newM3Data.find(r => r.key === 'totale')
-      if (totale) {
-        const individuals = newM3Data.filter(r => r.key !== 'totale')
-        const diffSum = individuals.reduce((sum, r) => sum + r.differenza, 0)
-        totale.differenza = diffSum
-      }
-
-      return newM3Data
-    })
-  }, [])
-
-  const updatePrice = useCallback((key: keyof Prices, value: number) => {
     setPrices(prev => ({ ...prev, [key]: value }))
-    // Sync expenses.prezzoGasolio when prices.gasolio is updated
     if (key === 'gasolio') {
       setExpenses(prev => ({ ...prev, prezzoGasolio: value }))
     }
-  }, [])
 
-  const updateExpense = useCallback((key: keyof Expenses, value: number) => {
+    await fetchPricesData(organizationId || '0')
+  }, [fetchPricesData, organizationId, user])
+
+  const updateExpense = useCallback(async (key: keyof Expenses, value: number) => {
+    if (!isAdmin) {
+      throw new Error('Only admins can update expenses')
+    }
+
+    if (!organizationId || !user?.id) {
+      throw new Error('No organization_id or user - cannot update expenses')
+    }
+
+    const expenseTypeMap: Record<keyof Expenses, 'prezzoGasolio' | 'fatturaGasolio' | 'manutenzione' | 'corrente'> = {
+      prezzoGasolio: 'prezzoGasolio',
+      fatturaGasolio: 'fatturaGasolio',
+      manutenzione: 'manutenzione',
+      corrente: 'corrente',
+    }
+
+    const expenseType = expenseTypeMap[key]
+    if (!expenseType) return
+
+    await upsertExpense({
+      expense_type: expenseType,
+      value,
+      period_year: getCurrentYear(),
+      created_by: user.id,
+      updated_by: user.id,
+    })
+
     setExpenses(prev => ({ ...prev, [key]: value }))
-  }, [])
+    await fetchExpensesData(organizationId)
+  }, [fetchExpensesData, isAdmin, organizationId, user])
 
   const getTotalExpensesPerUser = useCallback(() => {
-    // Calculate acquaFredda from m3Data
     const totaleM3Row = m3Data.find(r => r.key === 'totale')
     const m3Diff = totaleM3Row?.differenza || 0
     const acquaFredda = m3Diff * prices.acqua
 
-    // Calculate corrente from kW difference * corrente price
     const comuneKWRow = kWData.find(r => r.key === 'comune')
     const kWDiff = comuneKWRow?.differenza || 0
     const corrente = kWDiff * prices.corrente
 
-    // Calculate funzionamentoServizio (20% of fatturaGasolio)
     const funzionamentoServizio = expenses.fatturaGasolio * 0.2
-
-    // Calculate total expenses
     const totalExpenses = expenses.fatturaGasolio + expenses.manutenzione + corrente + acquaFredda + funzionamentoServizio
 
-    // Divide by number of users (3)
     return totalExpenses / 3
   }, [m3Data, kWData, prices, expenses])
+
+  const canEditUser = useCallback((userKey: string) => {
+    if (isAdmin) return true
+    if (!currentUserKey) return false
+    return currentUserKey === userKey
+  }, [isAdmin, currentUserKey])
 
   const value: ReadingsContextType = {
     kCalData,
@@ -291,6 +345,9 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     kWData,
     prices,
     expenses,
+    loading,
+    error,
+    refreshData,
     updateKCalData,
     updateM3Data,
     updateKWData,
@@ -298,6 +355,9 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     updatePrice,
     updateExpense,
     getTotalExpensesPerUser,
+    isAdmin,
+    currentUserKey,
+    canEditUser,
   }
 
   return (
@@ -306,4 +366,3 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     </ReadingsContext.Provider>
   )
 }
-

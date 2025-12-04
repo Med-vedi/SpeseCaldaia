@@ -1,5 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { Provider } from 'react-redux'
 import { ConfigProvider, App as AntdApp } from 'antd'
+import { store } from './store/store'
 import { AuthProvider } from './hooks/useAuth'
 import { ReadingsProvider } from './contexts/ReadingsContext'
 import LoginPage from './pages/LoginPage'
@@ -47,22 +49,24 @@ function AppContent() {
 
 function App() {
   return (
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: '#1890ff',
-          borderRadius: 6,
-        },
-      }}
-    >
-      <AntdApp>
-        <AuthProvider>
-          <ReadingsProvider>
-            <AppContent />
-          </ReadingsProvider>
-        </AuthProvider>
-      </AntdApp>
-    </ConfigProvider>
+    <Provider store={store}>
+      <ConfigProvider
+        theme={{
+          token: {
+            colorPrimary: '#1890ff',
+            borderRadius: 6,
+          },
+        }}
+      >
+        <AntdApp>
+          <AuthProvider>
+            <ReadingsProvider>
+              <AppContent />
+            </ReadingsProvider>
+          </AuthProvider>
+        </AntdApp>
+      </ConfigProvider>
+    </Provider>
   )
 }
 
