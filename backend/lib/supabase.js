@@ -9,8 +9,12 @@ if (!supabaseUrl || !supabaseServiceKey) {
   process.exit(1)
 }
 
-// Use service role key for admin operations (bypasses RLS)
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+})
 
 module.exports = supabase
 

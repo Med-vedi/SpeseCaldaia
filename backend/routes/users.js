@@ -1,5 +1,6 @@
 const express = require('express')
 const router = express.Router()
+const { randomUUID } = require('crypto')
 const supabase = require('../lib/supabase')
 
 // Middleware to verify authentication
@@ -52,6 +53,100 @@ router.get('/', authenticate, async (req, res) => {
     res.json(data)
   } catch (error) {
     console.error('Get users error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * @route POST /api/users/create-profile
+ * @desc Create a profile for the current authenticated user if it doesn't exist
+ * @body { username?: string, organization_id?: string, role?: 'admin' | 'guest' | 'basic' }
+ */
+router.post('/create-profile', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id
+    const { username, organization_id, role } = req.body
+
+    // Check if profile already exists
+    const { data: existingProfile } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single()
+
+    if (existingProfile) {
+      return res.json({
+        message: 'Profile already exists',
+        profile: existingProfile,
+      })
+    }
+
+    // Get user email from auth (required field)
+    let userEmail = req.user.email
+    if (!userEmail) {
+      // Fetch from auth.users if not in req.user
+      const { data: authUser } = await supabase.auth.admin.getUserById(userId)
+      if (!authUser?.user?.email) {
+        return res.status(400).json({ error: 'User email is required but not found' })
+      }
+      userEmail = authUser.user.email
+    }
+
+    // Generate defaults
+    const defaultUsername = username ||
+      (userEmail ? userEmail.split('@')[0] : `user_${userId.substring(0, 8)}`)
+    const defaultOrgId = organization_id || 'default-org'
+    const defaultRole = role || 'basic'
+
+    // Validate role
+    if (defaultRole && !['admin', 'guest', 'basic'].includes(defaultRole)) {
+      return res.status(400).json({ error: 'Invalid role. Must be admin, guest, or basic' })
+    }
+
+    // Ensure username is unique
+    let finalUsername = defaultUsername
+    let suffix = 1
+    while (true) {
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('username', finalUsername)
+        .single()
+
+      if (!existingUser) {
+        break
+      }
+      finalUsername = `${defaultUsername}_${suffix}`
+      suffix++
+    }
+
+    // Create profile
+    const { data: profile, error: profileError } = await supabase
+      .from('users')
+      .insert({
+        id: userId,
+        username: finalUsername,
+        organization_id: defaultOrgId,
+        role: defaultRole,
+        email: userEmail,
+        user_key: randomUUID(),
+        type: 'user', // Default type, adjust if your schema requires different values
+      })
+      .select()
+      .single()
+
+    if (profileError) {
+      return res.status(500).json({
+        error: 'Failed to create user profile: ' + profileError.message
+      })
+    }
+
+    res.status(201).json({
+      message: 'Profile created successfully',
+      profile,
+    })
+  } catch (error) {
+    console.error('Create profile error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -137,6 +232,9 @@ router.post('/', authenticate, async (req, res) => {
         username,
         organization_id,
         role,
+        email,
+        user_key: randomUUID(),
+        type: 'user', // Default type, adjust if your schema requires different values
       })
       .select()
       .single()

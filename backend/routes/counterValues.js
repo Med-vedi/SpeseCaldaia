@@ -30,42 +30,55 @@ const authenticate = async (req, res, next) => {
 
 /**
  * @route GET /api/counter-values
- * @desc Get all counter values (with optional filters)
- * @query { counter_id?: string, year?: number }
+ * @desc Get all counter values by organization_id
+ * @query { organization_id: string }
  */
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { counter_id, year } = req.query
+    const { organization_id } = req.query
 
-    let query = supabase
+    if (!organization_id) {
+      return res.status(400).json({ error: 'organization_id is required' })
+    }
+
+    const { data: orgCounters, error: countersError } = await supabase
+      .from('counters')
+      .select('id, name, counter_type, user_id, organization_id')
+      .eq('organization_id', organization_id)
+      .order('counter_type', { ascending: true })
+      .order('name', { ascending: true })
+
+    if (countersError) {
+      return res.status(500).json({ error: countersError.message })
+    }
+
+    if (!orgCounters || orgCounters.length === 0) {
+      return res.json([])
+    }
+
+    const counterIds = orgCounters.map(c => c.id)
+
+    const { data: counterValues, error: valuesError } = await supabase
       .from('counter_values')
-      .select(`
-        *,
-        counters (
-          id,
-          name,
-          counter_type,
-          organization_id,
-          user_id
-        )
-      `)
+      .select('*')
+      .in('counter_id', counterIds)
+      .order('year', { ascending: false })
+      .order('counter_id', { ascending: true })
 
-    if (counter_id) {
-      query = query.eq('counter_id', counter_id)
-    }
-    if (year) {
-      query = query.eq('year', parseInt(year))
+    if (valuesError) {
+      return res.status(500).json({ error: valuesError.message })
     }
 
-    const { data, error } = await query.order('year', { ascending: false })
+    const structuredData = (counterValues || []).map(cv => {
+      const counter = orgCounters.find(c => c.id === cv.counter_id)
+      return {
+        ...cv,
+        counters: counter || null
+      }
+    })
 
-    if (error) {
-      return res.status(500).json({ error: error.message })
-    }
-
-    res.json(data)
+    res.json(structuredData)
   } catch (error) {
-    console.error('Get counter values error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -102,7 +115,6 @@ router.get('/:id', authenticate, async (req, res) => {
 
     res.json(data)
   } catch (error) {
-    console.error('Get counter value error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -187,7 +199,6 @@ router.post('/', authenticate, async (req, res) => {
 
     res.status(201).json(data)
   } catch (error) {
-    console.error('Create counter value error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -255,7 +266,6 @@ router.put('/:id', authenticate, async (req, res) => {
 
     res.json(data)
   } catch (error) {
-    console.error('Update counter value error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -290,7 +300,6 @@ router.delete('/:id', authenticate, async (req, res) => {
 
     res.json({ message: 'Counter value deleted successfully' })
   } catch (error) {
-    console.error('Delete counter value error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })

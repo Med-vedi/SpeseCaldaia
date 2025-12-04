@@ -34,9 +34,34 @@ export const useAuth = () => {
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null)
+  // Initialize state from localStorage immediately
+  const getInitialProfile = (): UserProfile | null => {
+    try {
+      const stored = localStorage.getItem('user_profile')
+      if (stored) {
+        return JSON.parse(stored)
+      }
+    } catch (e) {
+      console.error('Error parsing initial profile:', e)
+    }
+    return null
+  }
+
+  const getInitialUser = (): User | null => {
+    try {
+      const stored = localStorage.getItem('user')
+      if (stored) {
+        return JSON.parse(stored)
+      }
+    } catch (e) {
+      console.error('Error parsing initial user:', e)
+    }
+    return null
+  }
+
+  const [user, setUser] = useState<User | null>(getInitialUser())
   const [session, setSession] = useState<Session | null>(null)
-  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(getInitialProfile())
   const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'))
 
   const { data: meData, isLoading: isLoadingMe, error: meError } = useGetMeQuery(undefined, {
@@ -91,6 +116,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [token]) // Re-run when token changes
 
+  // Also load on initial mount (in case token was already set)
+  useEffect(() => {
+    const storedProfile = localStorage.getItem('user_profile')
+    if (storedProfile && !profile) {
+      try {
+        setProfile(JSON.parse(storedProfile))
+      } catch (e) {
+        console.error('Error parsing stored profile on mount:', e)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Run only on mount
+
   useEffect(() => {
     // Update user and profile when meData changes
     if (meData) {
@@ -107,7 +145,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Only clear if we don't have localStorage data (token might be expired)
       // If we have localStorage data, keep it and let the user continue
       const storedUser = localStorage.getItem('user')
-      const storedToken = localStorage.getItem('auth_token')
 
       // Only clear if token is truly invalid (401) and we have no stored user
       if (meError && 'status' in meError && meError.status === 401 && !storedUser) {

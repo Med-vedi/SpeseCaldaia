@@ -6,8 +6,7 @@ import type {
 } from './models'
 
 export interface GetCounterValuesParams {
-  counter_id?: string
-  year?: number
+  organization_id?: string
 }
 
 export const counterValuesApi = apiSlice.injectEndpoints({
@@ -15,11 +14,8 @@ export const counterValuesApi = apiSlice.injectEndpoints({
     getCounterValues: builder.query<CounterValue[], GetCounterValuesParams | void>({
       query: (params) => {
         const queryParams = new URLSearchParams()
-        if (params?.counter_id) {
-          queryParams.append('counter_id', params.counter_id)
-        }
-        if (params?.year) {
-          queryParams.append('year', params.year.toString())
+        if (params?.organization_id) {
+          queryParams.append('organization_id', params.organization_id)
         }
         const queryString = queryParams.toString()
         return `/counter-values${queryString ? `?${queryString}` : ''}`
@@ -27,9 +23,9 @@ export const counterValuesApi = apiSlice.injectEndpoints({
       providesTags: (result) =>
         result
           ? [
-              ...result.map(({ id }) => ({ type: 'CounterValue' as const, id })),
-              { type: 'CounterValue', id: 'LIST' },
-            ]
+            ...result.map(({ id }) => ({ type: 'CounterValue' as const, id })),
+            { type: 'CounterValue', id: 'LIST' },
+          ]
           : [{ type: 'CounterValue', id: 'LIST' }],
     }),
     getCounterValueById: builder.query<CounterValue, string>({

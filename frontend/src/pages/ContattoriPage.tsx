@@ -8,9 +8,10 @@ import UpdateReadingsDrawer from '../components/UpdateReadingsDrawer'
 const { Title } = Typography
 
 const ContattoriPage = () => {
-  const { kCalData, m3Data, kWData, updateKCalData, updateM3Data, updateKWData, updateReadings } = useReadings()
+  const { kCalData, m3Data, kWData, updateCounterValues, updateReadings } = useReadings()
   const [drawerOpen, setDrawerOpen] = useState(false)
-
+  const currentYear = new Date().getFullYear()
+  const previousYear = currentYear - 1
 
   const renderKCalPrec = (value: number | null, record: KCalRow) => {
     const isTotal = record.key === 'totale'
@@ -18,7 +19,16 @@ const ContattoriPage = () => {
       ? <span>{value?.toFixed(1) || ''}</span>
       : <InputNumber
         value={value}
-        onChange={(val) => updateKCalData(record.key, 'kCalPrec', val)}
+        onChange={(val) => {
+          if (record.counterId && record.counterType) {
+            updateCounterValues({
+              counterType: record.counterType,
+              counterId: record.counterId,
+              year: previousYear,
+              value: val,
+            })
+          }
+        }}
         style={{ width: '100%' }}
         precision={1}
         controls={false}
@@ -31,7 +41,16 @@ const ContattoriPage = () => {
       ? <span>{value?.toFixed(1) || ''}</span>
       : <InputNumber
         value={value}
-        onChange={(val) => updateKCalData(record.key, 'kCalAtt', val)}
+        onChange={(val) => {
+          if (record.counterId && record.counterType) {
+            updateCounterValues({
+              counterType: record.counterType,
+              counterId: record.counterId,
+              year: currentYear,
+              value: val,
+            })
+          }
+        }}
         style={{ width: '100%' }}
         precision={1}
         controls={false}
@@ -44,7 +63,16 @@ const ContattoriPage = () => {
       ? <span>-</span>
       : <InputNumber
         value={value}
-        onChange={(val) => updateM3Data(record.key, 'm3Prec', val)}
+        onChange={(val) => {
+          if (record.counterId && record.counterType) {
+            updateCounterValues({
+              counterType: record.counterType,
+              counterId: record.counterId,
+              year: previousYear,
+              value: val,
+            })
+          }
+        }}
         style={{ width: '100%' }}
         precision={0}
         controls={false}
@@ -57,7 +85,16 @@ const ContattoriPage = () => {
       ? <span>-</span>
       : <InputNumber
         value={value}
-        onChange={(val) => updateM3Data(record.key, 'm3Att', val)}
+        onChange={(val) => {
+          if (record.counterId && record.counterType) {
+            updateCounterValues({
+              counterType: record.counterType,
+              counterId: record.counterId,
+              year: currentYear,
+              value: val,
+            })
+          }
+        }}
         style={{ width: '100%' }}
         precision={0}
         controls={false}
@@ -142,7 +179,16 @@ const ContattoriPage = () => {
       render: (value: number | null, record) => (
         <InputNumber
           value={value}
-          onChange={(val) => updateKWData(record.key, 'kWPrec', val)}
+          onChange={(val) => {
+            if (record.counterId && record.counterType) {
+              updateCounterValues({
+                counterType: record.counterType,
+                counterId: record.counterId,
+                year: previousYear,
+                value: val,
+              })
+            }
+          }}
           style={{ width: '100%' }}
           precision={1}
           controls={false}
@@ -157,7 +203,16 @@ const ContattoriPage = () => {
       render: (value: number | null, record) => (
         <InputNumber
           value={value}
-          onChange={(val) => updateKWData(record.key, 'kWAtt', val)}
+          onChange={(val) => {
+            if (record.counterId && record.counterType) {
+              updateCounterValues({
+                counterType: record.counterType,
+                counterId: record.counterId,
+                year: currentYear,
+                value: val,
+              })
+            }
+          }}
           style={{ width: '100%' }}
           precision={1}
           controls={false}

@@ -30,34 +30,29 @@ const authenticate = async (req, res, next) => {
 
 /**
  * @route GET /api/counters
- * @desc Get all counters (with optional filters)
- * @query { organization_id?: string, counter_type?: string, user_id?: string }
+ * @desc Get all counters by organization_id
+ * @query { organization_id: string }
  */
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { organization_id, counter_type, user_id } = req.query
+    const { organization_id } = req.query
 
-    let query = supabase.from('counters').select('*')
-
-    if (organization_id) {
-      query = query.eq('organization_id', organization_id)
-    }
-    if (counter_type) {
-      query = query.eq('counter_type', counter_type)
-    }
-    if (user_id) {
-      query = query.eq('user_id', user_id)
+    if (!organization_id) {
+      return res.status(400).json({ error: 'organization_id is required' })
     }
 
-    const { data, error } = await query.order('created_at', { ascending: false })
+    const { data, error } = await supabase
+      .from('counters')
+      .select('*')
+      .eq('organization_id', organization_id)
+      .order('created_at', { ascending: false })
 
     if (error) {
       return res.status(500).json({ error: error.message })
     }
 
-    res.json(data)
+    res.json(data || [])
   } catch (error) {
-    console.error('Get counters error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -85,7 +80,6 @@ router.get('/:id', authenticate, async (req, res) => {
 
     res.json(data)
   } catch (error) {
-    console.error('Get counter error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -136,7 +130,6 @@ router.post('/', authenticate, async (req, res) => {
 
     res.status(201).json(data)
   } catch (error) {
-    console.error('Create counter error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -200,7 +193,6 @@ router.put('/:id', authenticate, async (req, res) => {
 
     res.json(data)
   } catch (error) {
-    console.error('Update counter error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -235,7 +227,6 @@ router.delete('/:id', authenticate, async (req, res) => {
 
     res.json({ message: 'Counter deleted successfully' })
   } catch (error) {
-    console.error('Delete counter error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
