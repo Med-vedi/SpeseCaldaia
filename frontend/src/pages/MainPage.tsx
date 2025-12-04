@@ -12,7 +12,7 @@ import {
   BarChartOutlined,
   HomeOutlined
 } from '@ant-design/icons'
-import { useAuth } from '../hooks/useAuth'
+import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Routes, Route, useLocation } from 'react-router-dom'
 import DashboardPage from './DashboardPage'
 import ContattoriPage from './ContattoriPage'

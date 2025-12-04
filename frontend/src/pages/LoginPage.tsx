@@ -1,8 +1,9 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { Form, Input, Button, Card, Typography, App } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
-import { useAuth } from '../hooks/useAuth'
+import { useLoginMutation } from '../store/api/authApi'
+import { useAuth } from '../contexts/AuthContext'
 
 const { Title } = Typography
 
@@ -12,28 +13,64 @@ interface LoginForm {
 }
 
 const LoginPage = () => {
-  const [loading, setLoading] = useState(false)
-  const { signIn } = useAuth()
+  const [login, { isLoading }] = useLoginMutation()
   const navigate = useNavigate()
   const { message } = App.useApp()
+  const { user, loading } = useAuth()
+
+  // Redirect to main if already authenticated
+  useEffect(() => {
+    // Check if user is authenticated (either from context or localStorage)
+    const token = localStorage.getItem('auth_token')
+    const storedUser = localStorage.getItem('user')
+
+    // If we have a token and user data, redirect
+    if (token && (user || storedUser)) {
+      navigate('/main', { replace: true })
+    }
+  }, [user, loading, navigate])
+
+  // Show loading while checking authentication
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div>Loading...</div>
+      </div>
+    )
+  }
+
+  // Check if already authenticated (show nothing while redirecting)
+  const token = localStorage.getItem('auth_token')
+  const storedUser = localStorage.getItem('user')
+  if (token && (user || storedUser)) {
+    return null
+  }
 
   const onFinish = async (values: LoginForm) => {
-    setLoading(true)
     try {
-      // For this simple app, we'll use email format for username
-      const email = `${values.username}@app.local`
-      const { error } = await signIn(email, values.password)
+      const result = await login({
+        username: values.username,
+        password: values.password,
+      }).unwrap()
 
-      if (error) {
-        message.error('Invalid username or password')
-      } else {
+      if (result) {
         message.success('Login successful!')
-        navigate('/main')
+        // Navigate immediately after successful login
+        // The token and user are already stored in localStorage by authApi
+        navigate('/main', { replace: true })
       }
     } catch (error) {
-      message.error('An error occurred during login')
-    } finally {
-      setLoading(false)
+      let errorMessage = 'Invalid username or password'
+
+      if (error && typeof error === 'object' && 'data' in error) {
+        const errorData = error.data as { error?: string }
+        errorMessage = errorData?.error || errorMessage
+      } else if (error && typeof error === 'object' && 'status' in error) {
+        const rtkError = error as { status?: number; data?: { error?: string } }
+        errorMessage = rtkError.data?.error || errorMessage
+      }
+
+      message.error(errorMessage)
     }
   }
 
@@ -84,20 +121,14 @@ const LoginPage = () => {
             <Button
               type="primary"
               htmlType="submit"
-              loading={loading}
+              loading={isLoading}
               block
               className="h-12 rounded-lg font-medium"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {isLoading ? 'Signing in...' : 'Sign In'}
             </Button>
           </Form.Item>
         </Form>
-
-        <div className="text-center text-sm text-gray-500 mt-6">
-          <p>Demo credentials:</p>
-          <p><strong>Username:</strong> admin</p>
-          <p><strong>Password:</strong> admin12!</p>
-        </div>
       </Card>
     </div>
   )
