@@ -143,7 +143,7 @@ const MainPage = () => {
             padding: '16px',
             borderTop: '1px solid rgba(255, 255, 255, 0.1)',
             display: 'flex',
-            justifyContent: 'center',
+            justifyContent: 'flex-end',
             height: '64px',
             alignItems: 'center',
             flexShrink: 0,
