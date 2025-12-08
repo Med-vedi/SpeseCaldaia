@@ -1,13 +1,32 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { ConfigProvider, App as AntdApp } from 'antd'
-import { AuthProvider } from './hooks/useAuth'
+import { Provider } from 'react-redux'
+import { store } from './store/store'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ReadingsProvider } from './contexts/ReadingsContext'
 import LoginPage from './pages/LoginPage'
 import MainPage from './pages/MainPage'
 
-// Protected Route component - TEMPORARILY BYPASSED
+// Protected Route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  // Temporarily bypass authentication check
+  const { user, loading } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate('/login', { replace: true })
+    }
+  }, [user, loading, navigate])
+
+  if (loading) {
+    return <div>Loading...</div>
+  }
+
+  if (!user) {
+    return null
+  }
+
   return <>{children}</>
 }
 
@@ -47,22 +66,24 @@ function AppContent() {
 
 function App() {
   return (
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: '#1890ff',
-          borderRadius: 6,
-        },
-      }}
-    >
-      <AntdApp>
-        <AuthProvider>
-          <ReadingsProvider>
-            <AppContent />
-          </ReadingsProvider>
-        </AuthProvider>
-      </AntdApp>
-    </ConfigProvider>
+    <Provider store={store}>
+      <ConfigProvider
+        theme={{
+          token: {
+            colorPrimary: '#1890ff',
+            borderRadius: 6,
+          },
+        }}
+      >
+        <AntdApp>
+          <AuthProvider>
+            <ReadingsProvider>
+              <AppContent />
+            </ReadingsProvider>
+          </AuthProvider>
+        </AntdApp>
+      </ConfigProvider>
+    </Provider>
   )
 }
 

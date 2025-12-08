@@ -77,7 +77,7 @@ const PrezziPage = () => {
           </Button>
         )}
       </div>
-      <Card className="max-w-full sm:max-w-80">
+      <Card className="max-w-full sm:max-w-120">
         <Table
           columns={columns}
           dataSource={priceData}

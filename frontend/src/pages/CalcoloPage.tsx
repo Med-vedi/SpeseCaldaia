@@ -39,25 +39,53 @@ interface TotalRow {
 }
 
 const CalcoloPage = () => {
-  const { kCalData, m3Data, expenses, getTotalExpensesPerUser } = useReadings()
+  const { kCalData, m3Data, expenses, getTotalExpensesPerUser, allCounterValues } = useReadings()
   const { prezzoGasolio, fatturaGasolio } = expenses
   const payToMaster = getTotalExpensesPerUser()
+  const currentYear = new Date().getFullYear()
+  const twoYearsAgo = currentYear - 2
 
-  const hotWaterData = useMemo(() => {
-    const users = ['dino', 'vladi', 'cristian']
-    return users.map(userKey => {
-      const m3Row = m3Data.find(r => r.key === userKey)
-      const m3 = m3Row?.differenza || 0
+  const hotWaterData = useMemo<HotWaterRow[]>(() => {
+    // Filter out the 'totale' row and get only user rows
+    const userM3Rows = m3Data.filter(r => r.key !== 'totale')
+
+    return userM3Rows.map(m3Row => {
+      const hasCounterId = !!m3Row.counterId
+
+      // Calculate difference for last 2 years: current year - 2 years ago
+      const currentYearValue = hasCounterId
+        ? allCounterValues.find(
+          cv => cv.counter_id === m3Row.counterId && cv.year === currentYear
+        )?.value ?? null
+        : null
+
+      const twoYearsAgoValue = hasCounterId
+        ? allCounterValues.find(
+          cv => cv.counter_id === m3Row.counterId && cv.year === twoYearsAgo
+        )?.value ?? null
+        : null
+
+      // Calculate 2-year difference
+      // If 2-year data is not available, fall back to 1-year difference (differenza)
+      const hasTwoYearData = currentYearValue !== null && twoYearsAgoValue !== null
+      const hasOneYearData = m3Row.differenza !== null && m3Row.differenza !== undefined
+
+      const m3 = hasTwoYearData
+        ? Number(currentYearValue) - Number(twoYearsAgoValue)
+        : hasOneYearData
+          ? m3Row.differenza
+          : 0
+
       const spesa = m3 * (prezzoGasolio * 10)
 
       return {
-        key: userKey,
-        name: m3Row?.name || userKey,
+        key: m3Row.key,
+        name: m3Row.name,
         m3,
         spesa,
       }
     })
-  }, [m3Data, prezzoGasolio])
+  }, [m3Data, prezzoGasolio, allCounterValues, currentYear, twoYearsAgo])
 
   const totalHotWaterExpenses = useMemo(() => {
     return hotWaterData.reduce((sum, row) => sum + row.spesa, 0)
@@ -83,16 +111,16 @@ const CalcoloPage = () => {
 
   const heatingData = useMemo<HeatingRow[]>(() => {
     const prezzoKCal = kCalCostData[0]?.prezzoKCal || 0
-    const users = ['dino', 'vladi', 'cristian']
+    // Filter out the 'totale' row and get only user rows
+    const userKCalRows = kCalData.filter(r => r.key !== 'totale')
 
-    return users.map(userKey => {
-      const kCalRow = kCalData.find(r => r.key === userKey)
-      const kCal = kCalRow?.differenza || 0
+    return userKCalRows.map(kCalRow => {
+      const kCal = kCalRow.differenza || 0
       const spesa = prezzoKCal * kCal
 
       return {
-        key: userKey,
-        name: kCalRow?.name || userKey,
+        key: kCalRow.key,
+        name: kCalRow.name,
         prezzoKCal,
         kCal,
         spesa,
@@ -102,7 +130,8 @@ const CalcoloPage = () => {
 
   const totalData = useMemo<TotalRow[]>(() => {
     return hotWaterData.map(hwRow => {
-      const heatingRow = heatingData.find(h => h.key === hwRow.key)
+      // Match heating data by user name since keys are different counter IDs
+      const heatingRow = heatingData.find(h => h.name === hwRow.name)
       const speseRiscaldamento = heatingRow?.spesa || 0
       const totale = payToMaster + hwRow.spesa + speseRiscaldamento
 
@@ -136,13 +165,13 @@ const CalcoloPage = () => {
       ),
     },
     {
-      title: 'Prezzo gasolio*10',
+      title: 'Prezzo gasolio*10 (€)',
       dataIndex: 'prezzoGasolio',
       key: 'prezzoGasolio',
       width: 150,
       render: () => (
         <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%' }}>
-          {prezzoGasolio.toFixed(2)}
+          {expenses.prezzoGasolio.toFixed(2)}
         </span>
       ),
     },
@@ -161,7 +190,7 @@ const CalcoloPage = () => {
 
   const kCalCostColumns: ColumnsType<KCalCostRow> = [
     {
-      title: 'Fattura Gasolio',
+      title: 'Fattura Gasolio (€)',
       dataIndex: 'fatturaGasolio',
       key: 'fatturaGasolio',
       width: 150,
@@ -172,10 +201,21 @@ const CalcoloPage = () => {
       ),
     },
     {
-      title: 'Funzionamento di servizio (20% dalla fattura)',
+      title: 'Funzionamento di servizio (20%) (€)',
       dataIndex: 'funzionamentoServizio',
       key: 'funzionamentoServizio',
-      width: 250,
+      width: 200,
+      render: () => (
+        <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%' }}>
+          {(expenses.fatturaGasolio * 0.2).toFixed(2)}
+        </span>
+      ),
+    },
+    {
+      title: 'Spese acqua calda (€)',
+      dataIndex: 'speseAcquaCalda',
+      key: 'speseAcquaCalda',
+      width: 150,
       render: (value: number) => (
         <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%' }}>
           {value.toFixed(2)}
@@ -183,18 +223,7 @@ const CalcoloPage = () => {
       ),
     },
     {
-      title: 'Spese acqua calda',
-      dataIndex: 'speseAcquaCalda',
-      key: 'speseAcquaCalda',
-      width: 150,
-      render: () => (
-        <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%' }}>
-          {hotWaterData.reduce((sum, row) => sum + row.spesa, 0).toFixed(2)}
-        </span>
-      ),
-    },
-    {
-      title: 'kCal totale',
+      title: 'kCal totale (kCal)',
       dataIndex: 'kCalTotale',
       key: 'kCalTotale',
       width: 120,
@@ -205,10 +234,10 @@ const CalcoloPage = () => {
       ),
     },
     {
-      title: '(A1-B1-C1):D1 prezzo kCal',
+      title: '(A1-B1-C1):D1 prezzo kCal (€/kCal)',
       dataIndex: 'prezzoKCal',
       key: 'prezzoKCal',
-      width: 200,
+      width: 150,
       render: (value: number) => (
         <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%', fontWeight: 'bold' }}>
           {value.toFixed(6)}
@@ -225,7 +254,7 @@ const CalcoloPage = () => {
       width: 120,
     },
     {
-      title: 'Prezzo kCal',
+      title: 'Prezzo kCal (€/kCal)',
       dataIndex: 'prezzoKCal',
       key: 'prezzoKCal',
       width: 120,
@@ -236,7 +265,7 @@ const CalcoloPage = () => {
       ),
     },
     {
-      title: 'kCal',
+      title: 'kCal (kCal)',
       dataIndex: 'kCal',
       key: 'kCal',
       width: 120,
@@ -247,7 +276,7 @@ const CalcoloPage = () => {
       ),
     },
     {
-      title: '',
+      title: 'Spesa (€)',
       dataIndex: 'spesa',
       key: 'spesa',
       width: 120,
@@ -267,18 +296,18 @@ const CalcoloPage = () => {
       width: 120,
     },
     {
-      title: 'Da dare a Dino',
+      title: 'Da dare a Dino (€)',
       dataIndex: 'payToMaster',
       key: 'payToMaster',
       width: 150,
-      render: (value: number) => (
+      render: () => (
         <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%' }}>
-          {value.toFixed(2)}
+          {payToMaster.toFixed(2)}
         </span>
       ),
     },
     {
-      title: 'Spese individuali acqua calda',
+      title: 'Spese individuali acqua calda (€)',
       dataIndex: 'speseAcquaCalda',
       key: 'speseAcquaCalda',
       width: 200,
@@ -289,7 +318,7 @@ const CalcoloPage = () => {
       ),
     },
     {
-      title: 'Spese riscaldamento',
+      title: 'Spese riscaldamento (€)',
       dataIndex: 'speseRiscaldamento',
       key: 'speseRiscaldamento',
       width: 150,
@@ -300,7 +329,7 @@ const CalcoloPage = () => {
       ),
     },
     {
-      title: 'Totale',
+      title: 'Totale (€)',
       dataIndex: 'totale',
       key: 'totale',
       width: 120,
@@ -313,7 +342,7 @@ const CalcoloPage = () => {
   ]
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="p-4 md:p-6 flex flex-col gap-4">
       <Title level={2} className="mb-4 md:mb-6" style={{ fontSize: '24px' }}>Calcolo</Title>
 
       <Card className="mb-4 md:mb-6">
