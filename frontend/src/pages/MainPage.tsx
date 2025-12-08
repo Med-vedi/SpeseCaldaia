@@ -12,7 +12,7 @@ import {
   BarChartOutlined,
   HomeOutlined
 } from '@ant-design/icons'
-import { useAuth } from '../hooks/useAuth'
+import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Routes, Route, useLocation } from 'react-router-dom'
 import DashboardPage from './DashboardPage'
 import ContattoriPage from './ContattoriPage'
@@ -143,7 +143,7 @@ const MainPage = () => {
             padding: '16px',
             borderTop: '1px solid rgba(255, 255, 255, 0.1)',
             display: 'flex',
-            justifyContent: 'center',
+            justifyContent: 'flex-end',
             height: '64px',
             alignItems: 'center',
             flexShrink: 0,

@@ -1,4 +1,19 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useMemo, useEffect, type ReactNode } from 'react'
+import { useAuth } from './AuthContext'
+import {
+  useGetCounterValuesQuery,
+  useCreateCounterValueMutation,
+  useUpdateCounterValueMutation,
+} from '../store/api/counterValuesApi'
+import { useGetCountersQuery } from '../store/api/countersApi'
+import type { Counter, CounterType } from '../store/api/models'
+import {
+  filterCountersByType,
+  filterElectricCounters,
+  transformCounterToRow as transformCounter,
+  addKCalTotal,
+  addM3Total,
+} from './utils'
 
 export interface KCalRow {
   key: string
@@ -6,6 +21,8 @@ export interface KCalRow {
   kCalPrec: number | null
   kCalAtt: number | null
   differenza: number
+  counterId?: string
+  counterType?: CounterType
 }
 
 export interface M3Row {
@@ -14,6 +31,8 @@ export interface M3Row {
   m3Prec: number | null
   m3Att: number | null
   differenza: number
+  counterId?: string
+  counterType?: CounterType
 }
 
 export interface KWRow {
@@ -22,6 +41,8 @@ export interface KWRow {
   kWPrec: number | null
   kWAtt: number | null
   differenza: number
+  counterId?: string
+  counterType?: CounterType
 }
 
 export interface Prices {
@@ -37,19 +58,29 @@ export interface Expenses {
   corrente: number
 }
 
+interface UpdateCounterValueParams {
+  counterType: CounterType
+  counterId: string
+  year: number
+  value: number | null
+}
+
 interface ReadingsContextType {
   kCalData: KCalRow[]
   m3Data: M3Row[]
   kWData: KWRow[]
   prices: Prices
   expenses: Expenses
-  updateKCalData: (key: string, field: 'kCalPrec' | 'kCalAtt', value: number | null) => void
-  updateM3Data: (key: string, field: 'm3Prec' | 'm3Att', value: number | null) => void
-  updateKWData: (key: string, field: 'kWPrec' | 'kWAtt', value: number | null) => void
-  updateReadings: (values: Record<string, number>) => void
+  loading: boolean
+  allCounterValues: import('../store/api/models').CounterValue[]
+  counters: import('../store/api/models').Counter[]
+  getAvailableYears: () => number[]
+  updateCounterValues: (params: UpdateCounterValueParams) => Promise<void>
+  updateReadings: (values: Record<string, number>, year: number) => void
   updatePrice: (key: keyof Prices, value: number) => void
   updateExpense: (key: keyof Expenses, value: number) => void
   getTotalExpensesPerUser: () => number
+  refreshData: () => void
 }
 
 const ReadingsContext = createContext<ReadingsContextType | undefined>(undefined)
@@ -66,29 +97,10 @@ interface ReadingsProviderProps {
   children: ReactNode
 }
 
-const calculateDifference = (prec: number | null, att: number | null): number => {
-  if (prec === null || att === null) return 0
-  return att - prec
-}
-
 export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
-  const [kCalData, setKCalData] = useState<KCalRow[]>([
-    { key: 'vladi', name: 'Vladi', kCalPrec: 124637.7, kCalAtt: 125769.7, differenza: 1132 },
-    { key: 'dino', name: 'Dino', kCalPrec: 80818.7, kCalAtt: 82048.3, differenza: 1229.6 },
-    { key: 'cristian', name: 'Cristian', kCalPrec: 86479, kCalAtt: 86479, differenza: 0 },
-    { key: 'totale', name: 'Totale', kCalPrec: 291935.4, kCalAtt: 294297, differenza: 2361.6 },
-  ])
-
-  const [m3Data, setM3Data] = useState<M3Row[]>([
-    { key: 'vladi', name: 'Vladi', m3Prec: 390, m3Att: 422, differenza: 32 },
-    { key: 'dino', name: 'Dino', m3Prec: 782, m3Att: 830, differenza: 48 },
-    { key: 'cristian', name: 'Cristian', m3Prec: 342, m3Att: 359, differenza: 17 },
-    { key: 'totale', name: 'Totale', m3Prec: null, m3Att: null, differenza: 97 },
-  ])
-
-  const [kWData, setKWData] = useState<KWRow[]>([
-    { key: 'comune', name: 'Comune', kWPrec: 2861, kWAtt: 3192.3, differenza: 331.3 },
-  ])
+  const { profile, loading: authLoading } = useAuth()
+  const currentYear = new Date().getFullYear()
+  const previousYear = currentYear - 1
 
   const [prices, setPrices] = useState<Prices>({
     gasolio: 1.28,
@@ -103,158 +115,223 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     corrente: 46.4,
   })
 
-  const updateKCalData = useCallback((key: string, field: 'kCalPrec' | 'kCalAtt', value: number | null) => {
-    setKCalData(prevData => {
-      const newData = prevData.map(row => {
-        const isTarget = row.key === key
-        const isTotal = key === 'totale'
+  const shouldFetch = !authLoading && !!profile?.organization_id
 
-        const updated = isTarget
-          ? { ...row, [field]: value }
-          : row
+  const countersParams = useMemo(() => {
+    if (shouldFetch && profile?.organization_id) {
+      return { organization_id: profile.organization_id }
+    }
+    return undefined
+  }, [shouldFetch, profile?.organization_id])
 
-        const shouldRecalc = isTarget && (isTotal || !isTotal)
-        updated.differenza = shouldRecalc
-          ? calculateDifference(updated.kCalPrec, updated.kCalAtt)
-          : updated.differenza
+  const counterValuesParams = useMemo(() => {
+    if (shouldFetch && profile?.organization_id) {
+      return { organization_id: profile.organization_id }
+    }
+    return undefined
+  }, [shouldFetch, profile?.organization_id])
 
-        return updated
-      })
+  const countersQuery = useGetCountersQuery(countersParams, { skip: !shouldFetch })
+  const { data: counters = [], isLoading: countersLoading } = countersQuery
 
-      const totale = newData.find(r => r.key === 'totale')
-      if (totale) {
-        const individuals = newData.filter(r => r.key !== 'totale')
-        const precSum = individuals.reduce((sum, r) => sum + (r.kCalPrec || 0), 0)
-        const attSum = individuals.reduce((sum, r) => sum + (r.kCalAtt || 0), 0)
-        totale.kCalPrec = precSum
-        totale.kCalAtt = attSum
-        totale.differenza = calculateDifference(totale.kCalPrec, totale.kCalAtt)
+  const counterValuesQuery = useGetCounterValuesQuery(counterValuesParams, { skip: !shouldFetch })
+  const { data: allCounterValues = [], isLoading: counterValuesLoading } = counterValuesQuery
+
+  // Filter by year on frontend from all values
+  const currentYearValues = useMemo(() => {
+    return (allCounterValues || []).filter((cv) => cv.year === currentYear)
+  }, [allCounterValues, currentYear])
+
+  const previousYearValues = useMemo(() => {
+    return (allCounterValues || []).filter((cv) => cv.year === previousYear)
+  }, [allCounterValues, previousYear])
+
+  const [createCounterValue] = useCreateCounterValueMutation()
+  const [updateCounterValue] = useUpdateCounterValueMutation()
+
+  useEffect(() => {
+    if (shouldFetch) {
+      const timer = setTimeout(() => {
+        if (countersQuery.isUninitialized) {
+          countersQuery.refetch()
+        }
+        if (counterValuesQuery.isUninitialized) {
+          counterValuesQuery.refetch()
+        }
+      }, 200)
+
+      return () => clearTimeout(timer)
+    }
+  }, [shouldFetch, countersQuery, counterValuesQuery])
+
+  const loading = authLoading || countersLoading || counterValuesLoading
+
+  const { kCalData, m3Data, kWData } = useMemo(() => {
+    const transformCounterWithParams = (counter: Counter) =>
+      transformCounter(counter, previousYear, currentYear, previousYearValues, currentYearValues)
+
+    const transformToKCalRow = (row: ReturnType<typeof transformCounter>): KCalRow => ({
+      key: row.key,
+      name: row.name,
+      kCalPrec: row.prec,
+      kCalAtt: row.att,
+      differenza: row.differenza,
+      counterId: row.counterId,
+      counterType: row.counterType,
+    })
+
+    const transformToM3Row = (row: ReturnType<typeof transformCounter>): M3Row => ({
+      key: row.key,
+      name: row.name,
+      m3Prec: row.prec,
+      m3Att: row.att,
+      differenza: row.differenza,
+      counterId: row.counterId,
+      counterType: row.counterType,
+    })
+
+    const transformToKWRow = (row: ReturnType<typeof transformCounter>): KWRow => ({
+      key: row.key,
+      name: row.name,
+      kWPrec: row.prec,
+      kWAtt: row.att,
+      differenza: row.differenza,
+      counterId: row.counterId,
+      counterType: row.counterType,
+    })
+
+    const kCalRows = addKCalTotal(
+      filterCountersByType(counters, 'heat').map(counter => transformToKCalRow(transformCounterWithParams(counter)))
+    )
+
+    const m3Rows = addM3Total(
+      filterCountersByType(counters, 'water').map(counter => transformToM3Row(transformCounterWithParams(counter)))
+    )
+
+    const kWRows = filterElectricCounters(counters).map(counter => transformToKWRow(transformCounterWithParams(counter)))
+
+    return { kCalData: kCalRows, m3Data: m3Rows, kWData: kWRows }
+  }, [counters, currentYearValues, previousYearValues, currentYear, previousYear])
+
+
+
+  const saveCounterValue = useCallback(async (
+    counterId: string,
+    year: number,
+    value: number
+  ) => {
+    try {
+      const existingValue = allCounterValues.find(
+        v => v.counter_id === counterId && v.year === year
+      )
+
+      if (existingValue) {
+        await updateCounterValue({
+          id: existingValue.id,
+          data: { value },
+        }).unwrap()
+      } else {
+        await createCounterValue({
+          counter_id: counterId,
+          year,
+          value,
+        }).unwrap()
       }
+    } catch (error) {
+      console.error('Error saving counter value:', error)
+      throw error
+    }
+  }, [allCounterValues, createCounterValue, updateCounterValue])
 
-      return newData
-    })
-  }, [])
+  const updateCounterValues = useCallback(async ({
+    counterType,
+    counterId,
+    year,
+    value,
+  }: UpdateCounterValueParams) => {
+    if (value === null) return
 
-  const updateM3Data = useCallback((key: string, field: 'm3Prec' | 'm3Att', value: number | null) => {
-    setM3Data(prevData => {
-      const newData = prevData.map(row => {
-        const isTarget = row.key === key
-        const isTotal = key === 'totale'
+    const counter = counters.find(c => c.id === counterId && c.counter_type === counterType)
+    if (!counter) {
+      console.error(`Counter not found: ${counterId} with type ${counterType}`)
+      return
+    }
 
-        const updated = isTarget
-          ? { ...row, [field]: value }
-          : row
+    try {
+      await saveCounterValue(counterId, year, value)
+    } catch (error) {
+      console.error('Error updating counter value:', error)
+      throw error
+    }
+  }, [counters, saveCounterValue])
 
-        const shouldRecalc = isTarget && !isTotal
-        updated.differenza = shouldRecalc
-          ? calculateDifference(updated.m3Prec, updated.m3Att)
-          : updated.differenza
+  const getAvailableYears = useCallback(() => {
+    const years = new Set<number>()
+    allCounterValues.forEach(cv => years.add(cv.year))
+    // Always include current year even if no values exist
+    years.add(currentYear)
+    return Array.from(years).sort((a, b) => b - a) // Sort descending
+  }, [allCounterValues, currentYear])
 
-        return updated
-      })
+  const updateReadings = useCallback(async (values: Record<string, number>, year: number) => {
+    const ReadingType = {
+      KCAL: '_kCal',
+      M3: '_m3',
+    } as const
 
-      const totale = newData.find(r => r.key === 'totale')
-      if (totale) {
-        const individuals = newData.filter(r => r.key !== 'totale')
-        const diffSum = individuals.reduce((sum, r) => sum + r.differenza, 0)
-        totale.differenza = diffSum
+    type ReadingTypeValue = typeof ReadingType[keyof typeof ReadingType]
+
+    const getReadingType = (key: string): ReadingTypeValue | null => {
+      if (key.endsWith(ReadingType.KCAL)) return ReadingType.KCAL
+      if (key.endsWith(ReadingType.M3)) return ReadingType.M3
+      return null
+    }
+
+    const extractCounterKey = (key: string, type: ReadingTypeValue): string => {
+      return key.replace(type, '')
+    }
+
+    const updateSingleReading = async (key: string, value: number): Promise<void> => {
+      const readingType = getReadingType(key)
+      if (!readingType) return
+
+      const counterKey = extractCounterKey(key, readingType)
+
+      switch (readingType) {
+        case ReadingType.KCAL: {
+          const row = kCalData.find(r => r.key === counterKey)
+          if (row?.counterId && row?.counterType) {
+            await updateCounterValues({
+              counterType: row.counterType,
+              counterId: row.counterId,
+              year,
+              value,
+            })
+          }
+          break
+        }
+        case ReadingType.M3: {
+          const row = m3Data.find(r => r.key === counterKey)
+          if (row?.counterId && row?.counterType) {
+            await updateCounterValues({
+              counterType: row.counterType,
+              counterId: row.counterId,
+              year,
+              value,
+            })
+          }
+          break
+        }
       }
+    }
 
-      return newData
-    })
-  }, [])
-
-  const updateKWData = useCallback((key: string, field: 'kWPrec' | 'kWAtt', value: number | null) => {
-    setKWData(prevData => {
-      return prevData.map(row => {
-        const isTarget = row.key === key
-        const updated = isTarget
-          ? { ...row, [field]: value }
-          : row
-
-        updated.differenza = isTarget
-          ? calculateDifference(updated.kWPrec, updated.kWAtt)
-          : updated.differenza
-
-        return updated
-      })
-    })
-  }, [])
-
-  const updateReadings = useCallback((values: Record<string, number>) => {
-    const users = ['vladi', 'dino', 'cristian']
-
-    // Update kCal data
-    setKCalData(prevKCalData => {
-      const newKCalData = prevKCalData.map(row => {
-        const isUser = users.includes(row.key)
-        const isTotal = row.key === 'totale'
-
-        const shouldUpdate = isUser && values[`${row.key}_kCal`] !== undefined
-        const newValue = shouldUpdate ? values[`${row.key}_kCal`] : row.kCalAtt
-
-        const updated = shouldUpdate
-          ? { ...row, kCalAtt: newValue }
-          : row
-
-        const shouldRecalcDiff = isUser || isTotal
-        updated.differenza = shouldRecalcDiff
-          ? calculateDifference(updated.kCalPrec, updated.kCalAtt)
-          : updated.differenza
-
-        return updated
-      })
-
-      // Recalculate totals
-      const totale = newKCalData.find(r => r.key === 'totale')
-      if (totale) {
-        const individuals = newKCalData.filter(r => r.key !== 'totale')
-        const precSum = individuals.reduce((sum, r) => sum + (r.kCalPrec || 0), 0)
-        const attSum = individuals.reduce((sum, r) => sum + (r.kCalAtt || 0), 0)
-        totale.kCalPrec = precSum
-        totale.kCalAtt = attSum
-        totale.differenza = calculateDifference(totale.kCalPrec, totale.kCalAtt)
-      }
-
-      return newKCalData
-    })
-
-    // Update M3 data
-    setM3Data(prevM3Data => {
-      const newM3Data = prevM3Data.map(row => {
-        const isUser = users.includes(row.key)
-        const isTotal = row.key === 'totale'
-
-        const shouldUpdate = isUser && values[`${row.key}_m3`] !== undefined
-        const newValue = shouldUpdate ? values[`${row.key}_m3`] : row.m3Att
-
-        const updated = shouldUpdate
-          ? { ...row, m3Att: newValue }
-          : row
-
-        const shouldRecalcDiff = isUser && !isTotal
-        updated.differenza = shouldRecalcDiff
-          ? calculateDifference(updated.m3Prec, updated.m3Att)
-          : updated.differenza
-
-        return updated
-      })
-
-      // Recalculate total difference
-      const totale = newM3Data.find(r => r.key === 'totale')
-      if (totale) {
-        const individuals = newM3Data.filter(r => r.key !== 'totale')
-        const diffSum = individuals.reduce((sum, r) => sum + r.differenza, 0)
-        totale.differenza = diffSum
-      }
-
-      return newM3Data
-    })
-  }, [])
+    await Promise.all(
+      Object.entries(values).map(([key, value]) => updateSingleReading(key, value))
+    )
+  }, [kCalData, m3Data, updateCounterValues])
 
   const updatePrice = useCallback((key: keyof Prices, value: number) => {
     setPrices(prev => ({ ...prev, [key]: value }))
-    // Sync expenses.prezzoGasolio when prices.gasolio is updated
     if (key === 'gasolio') {
       setExpenses(prev => ({ ...prev, prezzoGasolio: value }))
     }
@@ -265,25 +342,28 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
   }, [])
 
   const getTotalExpensesPerUser = useCallback(() => {
-    // Calculate acquaFredda from m3Data
     const totaleM3Row = m3Data.find(r => r.key === 'totale')
     const m3Diff = totaleM3Row?.differenza || 0
     const acquaFredda = m3Diff * prices.acqua
 
-    // Calculate corrente from kW difference * corrente price
-    const comuneKWRow = kWData.find(r => r.key === 'comune')
+    const comuneKWRow = kWData.find(r => r.key !== 'totale')
     const kWDiff = comuneKWRow?.differenza || 0
     const corrente = kWDiff * prices.corrente
 
-    // Calculate funzionamentoServizio (20% of fatturaGasolio)
     const funzionamentoServizio = expenses.fatturaGasolio * 0.2
 
-    // Calculate total expenses
     const totalExpenses = expenses.fatturaGasolio + expenses.manutenzione + corrente + acquaFredda + funzionamentoServizio
 
-    // Divide by number of users (3)
-    return totalExpenses / 3
-  }, [m3Data, kWData, prices, expenses])
+    const userCount = kCalData.filter(r => r.key !== 'totale').length || 3
+    return totalExpenses / userCount
+  }, [m3Data, kWData, prices, expenses, kCalData])
+
+  const refreshData = useCallback(() => {
+    if (profile?.organization_id) {
+      countersQuery.refetch()
+      counterValuesQuery.refetch()
+    }
+  }, [profile?.organization_id, countersQuery, counterValuesQuery])
 
   const value: ReadingsContextType = {
     kCalData,
@@ -291,13 +371,16 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     kWData,
     prices,
     expenses,
-    updateKCalData,
-    updateM3Data,
-    updateKWData,
+    loading,
+    allCounterValues,
+    counters,
+    getAvailableYears,
+    updateCounterValues,
     updateReadings,
     updatePrice,
     updateExpense,
     getTotalExpensesPerUser,
+    refreshData,
   }
 
   return (
@@ -306,4 +389,3 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     </ReadingsContext.Provider>
   )
 }
-
