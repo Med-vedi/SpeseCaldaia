@@ -10,7 +10,8 @@ import {
   CalculatorOutlined,
   EuroOutlined,
   BarChartOutlined,
-  HomeOutlined
+  HomeOutlined,
+  BankOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Routes, Route, useLocation } from 'react-router-dom'
@@ -18,6 +19,7 @@ import DashboardPage from './DashboardPage'
 import ContattoriPage from './ContattoriPage'
 import SpesePage from './SpesePage'
 import CalcoloPage from './CalcoloPage'
+import BonificoPage from './BonificoPage'
 import PrezziPage from './PrezziPage'
 import StatisticaPage from './StatisticaPage'
 
@@ -70,6 +72,11 @@ const MainPage = () => {
       key: '/main/calcolo',
       icon: <CalculatorOutlined />,
       label: 'Calcolo',
+    },
+    {
+      key: '/main/bonifico',
+      icon: <BankOutlined />,
+      label: 'Bonifico',
     },
     {
       key: '/main/prezzi',
@@ -258,6 +265,7 @@ const MainPage = () => {
             <Route path="/contattori" element={<ContattoriPage />} />
             <Route path="/spese" element={<SpesePage />} />
             <Route path="/calcolo" element={<CalcoloPage />} />
+            <Route path="/bonifico" element={<BonificoPage />} />
             <Route path="/prezzi" element={<PrezziPage />} />
             <Route path="/statistica" element={<StatisticaPage />} />
           </Routes>

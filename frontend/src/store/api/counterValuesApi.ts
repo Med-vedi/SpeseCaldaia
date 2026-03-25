@@ -1,4 +1,5 @@
 import { apiSlice } from './apiSlice'
+import { normalizeCounterValue, parseCounterValueFromApi } from '../../lib/normalizeApiNumbers'
 import type {
   CounterValue,
   CreateCounterValueRequest,
@@ -7,6 +8,18 @@ import type {
 
 export interface GetCounterValuesParams {
   organization_id?: string
+}
+
+function unwrapCounterValuesPayload(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw
+  if (raw && typeof raw === 'object') {
+    const o = raw as Record<string, unknown>
+    for (const key of ['data', 'payload', 'results', 'rows'] as const) {
+      const v = o[key]
+      if (Array.isArray(v)) return v
+    }
+  }
+  return []
 }
 
 export const counterValuesApi = apiSlice.injectEndpoints({
@@ -20,7 +33,16 @@ export const counterValuesApi = apiSlice.injectEndpoints({
         const queryString = queryParams.toString()
         return `/counter-values${queryString ? `?${queryString}` : ''}`
       },
-      providesTags: (result) =>
+      transformResponse: (raw: unknown) => {
+        const rows = unwrapCounterValuesPayload(raw)
+        const out: CounterValue[] = []
+        for (const r of rows) {
+          const parsed = parseCounterValueFromApi(r)
+          if (parsed) out.push(normalizeCounterValue(parsed))
+        }
+        return out
+      },
+      providesTags: (result: CounterValue[] | undefined) =>
         result
           ? [
             ...result.map(({ id }) => ({ type: 'CounterValue' as const, id })),
@@ -30,7 +52,8 @@ export const counterValuesApi = apiSlice.injectEndpoints({
     }),
     getCounterValueById: builder.query<CounterValue, string>({
       query: (id) => `/counter-values/${id}`,
-      providesTags: (result, error, id) => [{ type: 'CounterValue', id }],
+      transformResponse: (r: CounterValue) => normalizeCounterValue(r),
+      providesTags: (_result, _error, id) => [{ type: 'CounterValue', id }],
     }),
     createCounterValue: builder.mutation<CounterValue, CreateCounterValueRequest>({
       query: (valueData) => ({
@@ -38,6 +61,7 @@ export const counterValuesApi = apiSlice.injectEndpoints({
         method: 'POST',
         body: valueData,
       }),
+      transformResponse: (r: CounterValue) => normalizeCounterValue(r),
       invalidatesTags: [
         { type: 'CounterValue', id: 'LIST' },
         { type: 'Counter', id: 'LIST' },
@@ -52,7 +76,8 @@ export const counterValuesApi = apiSlice.injectEndpoints({
         method: 'PUT',
         body: data,
       }),
-      invalidatesTags: (result, error, { id }) => [
+      transformResponse: (r: CounterValue) => normalizeCounterValue(r),
+      invalidatesTags: (_result, _error, { id }) => [
         { type: 'CounterValue', id },
         { type: 'CounterValue', id: 'LIST' },
       ],
@@ -62,7 +87,7 @@ export const counterValuesApi = apiSlice.injectEndpoints({
         url: `/counter-values/${id}`,
         method: 'DELETE',
       }),
-      invalidatesTags: (result, error, id) => [
+      invalidatesTags: (_result, _error, id) => [
         { type: 'CounterValue', id },
         { type: 'CounterValue', id: 'LIST' },
       ],

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Modal, Upload, Button, message, App } from 'antd'
+import { Modal, Upload, Button, App } from 'antd'
 import { UploadOutlined, FileTextOutlined } from '@ant-design/icons'
 import type { UploadProps } from 'antd'
 

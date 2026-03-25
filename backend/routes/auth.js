@@ -3,15 +3,19 @@ const router = express.Router()
 const { createClient } = require('@supabase/supabase-js')
 require('dotenv').config()
 
-// Use anon key for authentication (signInWithPassword requires anon key)
+// Use anon / publishable key for auth (signInWithPassword); never use service_role here.
 const supabaseUrl = process.env.SUPABASE_URL
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
+const supabaseAnonKey =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing SUPABASE_URL or SUPABASE_ANON_KEY for authentication')
+  console.error(
+    'Missing SUPABASE_URL and a public API key for authentication (set SUPABASE_ANON_KEY or VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY)'
+  )
+  process.exit(1)
 }
 
-// Create client with anon key for user authentication
 const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey)
 
 // Use service role key for admin operations (like fetching user profile)

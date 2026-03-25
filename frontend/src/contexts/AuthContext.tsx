@@ -133,13 +133,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Update user and profile when meData changes
     if (meData) {
       setUser(meData.user)
-      setProfile(meData.profile)
+      // Do not clear profile when /me returns profile: null (e.g. transient DB miss); org_id is required for counters.
+      if (meData.profile) {
+        setProfile(meData.profile)
+        localStorage.setItem('user_profile', JSON.stringify(meData.profile))
+      }
       // Also update localStorage with fresh data
       if (meData.user) {
         localStorage.setItem('user', JSON.stringify(meData.user))
-      }
-      if (meData.profile) {
-        localStorage.setItem('user_profile', JSON.stringify(meData.profile))
       }
     } else if (meError) {
       // Only clear if we don't have localStorage data (token might be expired)

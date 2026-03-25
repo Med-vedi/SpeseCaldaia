@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { Card, Typography, Select } from 'antd'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { useReadings } from '../contexts/ReadingsContext'
+import { coalesceFiniteNumber } from '../contexts/utils'
 
 const { Title } = Typography
 
@@ -33,7 +34,7 @@ const StatisticaPage = () => {
             const userName = row.name
             // For now, we only have one period's difference
             // When more years are added, this will show trends
-            dataPoint[userName] = row.differenza || 0
+            dataPoint[userName] = coalesceFiniteNumber(row.differenza)
           })
           return dataPoint
         })
@@ -46,19 +47,18 @@ const StatisticaPage = () => {
             const row = m3Data.find(r => r.key === userKey)
             if (!row) return
             const userName = row.name
-            dataPoint[userName] = row.differenza || 0
+            dataPoint[userName] = coalesceFiniteNumber(row.differenza)
           })
           return dataPoint
         })
       }
       case 'kW': {
-        // Show differences over time periods (ready for future years)
-        return periods.map(period => {
-          const row = kWData.find(r => r.key === 'comune')
-          if (!row) return { name: period, 'Comune': 0 }
+        return periods.map((period) => {
+          const row = kWData.find((r) => r.counterType === 'electric_common')
+          if (!row) return { name: period, Totale: 0 }
           return {
             name: period,
-            [row.name]: row.differenza || 0,
+            [row.name]: coalesceFiniteNumber(row.differenza),
           }
         })
       }
@@ -73,7 +73,7 @@ const StatisticaPage = () => {
         // Calculate hot water expenses
         const hotWaterData = users.map(userKey => {
           const m3Row = m3Data.find(r => r.key === userKey)
-          const m3 = m3Row?.differenza || 0
+          const m3 = coalesceFiniteNumber(m3Row?.differenza)
           const speseAcquaCalda = m3 * (expenses.prezzoGasolio * 10)
           return { userKey, name: m3Row?.name || userKey, speseAcquaCalda }
         })
@@ -83,7 +83,7 @@ const StatisticaPage = () => {
         // Calculate kCal cost
         const totaleKCal = kCalData
           .filter(r => r.key !== 'totale')
-          .reduce((sum, r) => sum + (r.differenza || 0), 0)
+          .reduce((sum, r) => sum + coalesceFiniteNumber(r.differenza), 0)
 
         const funzionamentoServizio = expenses.fatturaGasolio * 0.2
         const prezzoKCal = totaleKCal > 0
@@ -93,7 +93,7 @@ const StatisticaPage = () => {
         // Calculate heating expenses
         const heatingData = users.map(userKey => {
           const kCalRow = kCalData.find(r => r.key === userKey)
-          const kCal = kCalRow?.differenza || 0
+          const kCal = coalesceFiniteNumber(kCalRow?.differenza)
           const speseRiscaldamento = prezzoKCal * kCal
           return { userKey, name: kCalRow?.name || userKey, speseRiscaldamento }
         })
@@ -138,7 +138,7 @@ const StatisticaPage = () => {
       'Vladi': '#1890ff',
       'Dino': '#52c41a',
       'Cristian': '#faad14',
-      'Comune': '#722ed1',
+      Totale: '#722ed1',
     }
     return colorMap[userName] || '#eb2f96'
   }

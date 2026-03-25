@@ -1,6 +1,7 @@
 const express = require('express')
 const router = express.Router()
 const supabase = require('../lib/supabase')
+const { getAuthUserFromBearerToken } = require('../lib/authHelpers')
 
 // Middleware to verify authentication
 const authenticate = async (req, res, next) => {
@@ -11,11 +12,7 @@ const authenticate = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1]
-    const { createClient } = require('@supabase/supabase-js')
-    const { data: { user }, error } = await createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_ANON_KEY
-    ).auth.getUser(token)
+    const { data: { user }, error } = await getAuthUserFromBearerToken(token)
 
     if (error || !user) {
       return res.status(401).json({ error: 'Invalid or expired token' })

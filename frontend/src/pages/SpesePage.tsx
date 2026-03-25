@@ -2,8 +2,9 @@ import { useMemo } from 'react'
 import { Card, Typography, Table, InputNumber } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useReadings } from '../contexts/ReadingsContext'
+import { coalesceFiniteNumber } from '../contexts/utils'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 
 interface ExpenseRow {
   key: string
@@ -14,18 +15,17 @@ interface ExpenseRow {
 }
 
 const SpesePage = () => {
-  const { kCalData, m3Data, kWData, prices, expenses, updateExpense } = useReadings()
+  const { kCalData, m3Data, kWData, prices, expenses, updateExpense, financialYear } = useReadings()
 
   const expenseData = useMemo<ExpenseRow[]>(() => {
     // Calculate Acqua fredda from m3Data
     const totaleM3Row = m3Data.find(r => r.key === 'totale')
-    const m3Diff = totaleM3Row?.differenza || 0
+    const m3Diff = coalesceFiniteNumber(totaleM3Row?.differenza)
     const acquaFredda = m3Diff * prices.acqua
 
     // Calculate Corrente from kW difference * corrente price
-    // Find the comune (electric_common) row - it's the one that's not 'totale'
-    const comuneKWRow = kWData.find(r => r.key !== 'totale')
-    const kWDiff = comuneKWRow?.differenza || 0
+    const sharedKwRow = kWData.find((r) => r.counterType === 'electric_common')
+    const kWDiff = coalesceFiniteNumber(sharedKwRow?.differenza)
     const corrente = kWDiff * prices.corrente
 
     // Calculate Funzionamento di servizio caldaia (20% of Gasolio)
@@ -37,9 +37,9 @@ const SpesePage = () => {
     const rows: ExpenseRow[] = [
       {
         key: 'gasolio',
-        name: 'Gasolio',
+        name: 'Gasolio (tot. bollette, anno prezzi)',
         importo: expenses.fatturaGasolio,
-        isCalculated: false,
+        isCalculated: true,
       },
       {
         key: 'manutenzione',
@@ -104,15 +104,13 @@ const SpesePage = () => {
       render: (value: number, record) => {
         const isEditable = !record.isCalculated && !record.isTotal
         const expenseKeyMap: Record<string, keyof typeof expenses> = {
-          gasolio: 'fatturaGasolio',
           manutenzione: 'manutenzione',
-          corrente: 'corrente',
         }
 
         const handleChange = (val: number | null) => {
           const expenseKey = expenseKeyMap[record.key]
           if (expenseKey) {
-            updateExpense(expenseKey, val || 0)
+            void updateExpense(expenseKey, val || 0)
           }
         }
 
@@ -162,7 +160,12 @@ const SpesePage = () => {
 
   return (
     <div className="p-4 md:p-6">
-      <Title level={2} className="mb-4 md:mb-6" style={{ fontSize: '24px' }}>Spese</Title>
+      <div className="mb-4 md:mb-6">
+        <Title level={2} style={{ margin: 0, fontSize: '24px' }}>Spese</Title>
+        <Text type="secondary" className="text-sm">
+          Anno riferimento prezzi e bollette gasolio: {financialYear}
+        </Text>
+      </div>
 
       <Card className="mb-4 md:mb-6">
         <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">SPESE DA SOSTENERE</Title>

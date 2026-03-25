@@ -30,6 +30,13 @@ app.use('/api/counters', counterRoutes)
 const counterValueRoutes = require('./routes/counterValues')
 app.use('/api/counter-values', counterValueRoutes)
 
+// Yearly prices, maintenance, computed gasolio from deliveries
+const yearlyFinancialsRoutes = require('./routes/yearlyFinancials')
+app.use('/api/yearly-financials', yearlyFinancialsRoutes)
+
+const gasoilDeliveriesRoutes = require('./routes/gasoilDeliveries')
+app.use('/api/gasoil-deliveries', gasoilDeliveriesRoutes)
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err)

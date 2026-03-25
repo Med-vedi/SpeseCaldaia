@@ -5,7 +5,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 // Base query with authentication
 const baseQuery = fetchBaseQuery({
   baseUrl: API_BASE_URL,
-  prepareHeaders: (headers, { getState }) => {
+  prepareHeaders: (headers) => {
     // Get token from localStorage or state
     const token = localStorage.getItem('auth_token')
     if (token) {
@@ -17,7 +17,7 @@ const baseQuery = fetchBaseQuery({
 
 export const apiSlice = createApi({
   baseQuery,
-  tagTypes: ['User', 'Auth', 'Counter', 'CounterValue'],
+  tagTypes: ['User', 'Auth', 'Counter', 'CounterValue', 'YearlyFinancials'],
   endpoints: () => ({}),
 })
 

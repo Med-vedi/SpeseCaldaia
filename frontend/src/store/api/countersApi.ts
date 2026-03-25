@@ -34,7 +34,7 @@ export const countersApi = apiSlice.injectEndpoints({
     }),
     getCounterById: builder.query<Counter, string>({
       query: (id) => `/counters/${id}`,
-      providesTags: (result, error, id) => [{ type: 'Counter', id }],
+      providesTags: (_result, _error, id) => [{ type: 'Counter', id }],
     }),
     createCounter: builder.mutation<Counter, CreateCounterRequest>({
       query: (counterData) => ({
@@ -50,7 +50,7 @@ export const countersApi = apiSlice.injectEndpoints({
         method: 'PUT',
         body: data,
       }),
-      invalidatesTags: (result, error, { id }) => [
+      invalidatesTags: (_result, _error, { id }) => [
         { type: 'Counter', id },
         { type: 'Counter', id: 'LIST' },
       ],
@@ -60,7 +60,7 @@ export const countersApi = apiSlice.injectEndpoints({
         url: `/counters/${id}`,
         method: 'DELETE',
       }),
-      invalidatesTags: (result, error, id) => [
+      invalidatesTags: (_result, _error, id) => [
         { type: 'Counter', id },
         { type: 'Counter', id: 'LIST' },
       ],

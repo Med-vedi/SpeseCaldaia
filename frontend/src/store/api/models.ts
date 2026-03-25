@@ -95,3 +95,61 @@ export interface UpdateCounterValueRequest {
   notes?: string | null
 }
 
+export interface GasoilDelivery {
+  id: string
+  organization_id: string
+  year: number
+  sort_order: number
+  label: string | null
+  liters: number
+  amount_eur: number
+  bill_date: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface YearlyFinancialsComputed {
+  gasolio_per_liter: number
+  fattura_gasolio_total: number
+  total_liters: number
+}
+
+export interface YearlyFinancialsResponse {
+  year: number
+  acqua: number
+  corrente: number
+  manutenzione: number
+  gasolio_fallback: number | null
+  gasoil_deliveries: GasoilDelivery[]
+  computed: YearlyFinancialsComputed
+}
+
+export interface UpdateYearlyFinancialsRequest {
+  organization_id: string
+  year: number
+  acqua?: number
+  corrente?: number
+  manutenzione?: number
+  gasolio_fallback?: number | null
+}
+
+export interface CreateGasoilDeliveryRequest {
+  organization_id: string
+  year: number
+  label?: string | null
+  liters: number
+  amount_eur: number
+  bill_date?: string | null
+  notes?: string | null
+}
+
+export interface UpdateGasoilDeliveryRequest {
+  label?: string | null
+  liters?: number
+  amount_eur?: number
+  bill_date?: string | null
+  notes?: string | null
+  sort_order?: number
+}
+
