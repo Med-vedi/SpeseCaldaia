@@ -1,0 +1,5 @@
+{
+  "name": "spese-caldaia",
+  "private": true,
+  "description": "Monorepo root; Vercel builds from frontend/ (see vercel.json or set Root Directory to frontend)."
+}
