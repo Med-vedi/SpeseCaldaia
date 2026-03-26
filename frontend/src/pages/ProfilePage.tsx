@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
-import { Card, Form, Input, Button, Typography, Space, App, Spin, Row, Col, Divider, Alert } from 'antd'
+import { Card, Form, Input, Button, Typography, Space, App, Spin, Row, Col, Divider, Alert, Collapse } from 'antd'
 import { CopyOutlined, ReloadOutlined, SaveOutlined, QrcodeOutlined, UserOutlined } from '@ant-design/icons'
 import {
   useGetMyProfileQuery,
+  useGetOrganizationQrCodesQuery,
   useUpdateMyProfileMutation,
   useRegenerateMyQrMutation,
 } from '../store/api/usersApi'
@@ -19,6 +20,7 @@ const ProfilePage = () => {
   const { message } = App.useApp()
   const [form] = Form.useForm<ProfileFormValues>()
   const { data, isLoading, isError, error, refetch } = useGetMyProfileQuery()
+  const { data: orgQrData, isLoading: isOrgQrLoading } = useGetOrganizationQrCodesQuery()
   const [updateMyProfile, { isLoading: isUpdating }] = useUpdateMyProfileMutation()
   const [regenerateMyQr, { isLoading: isRegenerating }] = useRegenerateMyQrMutation()
 
@@ -69,6 +71,15 @@ const ProfilePage = () => {
     if (!data?.qr?.loginUrl) return
     try {
       await navigator.clipboard.writeText(data.qr.loginUrl)
+      message.success('Login link copied')
+    } catch {
+      message.error('Could not copy link')
+    }
+  }
+
+  const copyQrLinkForUser = async (loginUrl: string) => {
+    try {
+      await navigator.clipboard.writeText(loginUrl)
       message.success('Login link copied')
     } catch {
       message.error('Could not copy link')
@@ -196,6 +207,66 @@ const ProfilePage = () => {
             </Card>
           </Col>
         </Row>
+
+        <Card>
+          <Collapse
+            defaultActiveKey={[]}
+            items={[
+              {
+                key: 'other-users-qr',
+                label: 'Other Users QR Codes',
+                children: (
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <Text type="secondary">
+                      QR codes for users in your organization. Section is collapsed by default.
+                    </Text>
+                    {isOrgQrLoading ? (
+                      <Spin />
+                    ) : (
+                      <Row gutter={[12, 12]}>
+                        {(orgQrData?.users || [])
+                          .filter((item) => !item.isCurrentUser)
+                          .map((orgUser) => (
+                            <Col xs={24} md={12} lg={8} key={orgUser.id}>
+                              <Card
+                                size="small"
+                                title={orgUser.username}
+                                extra={<Text type="secondary">{orgUser.role}</Text>}
+                              >
+                                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                    <img
+                                      src={orgUser.qr.qrImageUrl}
+                                      alt={`QR for ${orgUser.username}`}
+                                      style={{
+                                        width: 160,
+                                        height: 160,
+                                        objectFit: 'contain',
+                                        border: '1px solid #f0f0f0',
+                                        borderRadius: 8,
+                                        background: '#fff',
+                                      }}
+                                    />
+                                  </div>
+                                  <Input value={orgUser.qr.loginUrl} readOnly />
+                                  <Button
+                                    icon={<CopyOutlined />}
+                                    onClick={() => copyQrLinkForUser(orgUser.qr.loginUrl)}
+                                  >
+                                    Copy link
+                                  </Button>
+                                </Space>
+                              </Card>
+                            </Col>
+                          ))}
+                      </Row>
+                    )}
+                  </Space>
+                ),
+              },
+            ]}
+          />
+        </Card>
       </Space>
     </div>
   )

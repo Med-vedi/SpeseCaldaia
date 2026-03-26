@@ -61,6 +61,48 @@ router.get('/me/profile', authenticate, async (req, res) => {
 })
 
 /**
+ * @route GET /api/users/me/organization-qr
+ * @desc Get QR codes for users in the same organization
+ */
+router.get('/me/organization-qr', authenticate, async (req, res) => {
+  try {
+    const { data: currentProfile, error: currentProfileError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', req.user.id)
+      .single()
+
+    if (currentProfileError || !currentProfile) {
+      return res.status(404).json({ error: 'Current user profile not found' })
+    }
+
+    const { data: orgUsers, error: orgUsersError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('organization_id', currentProfile.organization_id)
+      .order('username', { ascending: true })
+
+    if (orgUsersError) {
+      return res.status(500).json({ error: orgUsersError.message })
+    }
+
+    const users = (orgUsers || []).map((profile) => ({
+      id: profile.id,
+      username: profile.username,
+      email: profile.email,
+      role: profile.role,
+      qr: qrPayloadFromProfile(profile),
+      isCurrentUser: profile.id === req.user.id,
+    }))
+
+    return res.json({ organization_id: currentProfile.organization_id, users })
+  } catch (error) {
+    console.error('Get organization QR codes error:', error)
+    return res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
  * @route PUT /api/users/me/profile
  * @desc Update current user profile + auth email/password
  * @body { username?: string, email?: string, password?: string }

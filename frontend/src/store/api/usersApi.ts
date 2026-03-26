@@ -21,6 +21,20 @@ export interface MyProfileResponse {
   qr: UserQrData
 }
 
+export interface OrganizationQrUser {
+  id: string
+  username: string
+  email?: string
+  role: 'admin' | 'guest' | 'basic'
+  isCurrentUser: boolean
+  qr: UserQrData
+}
+
+export interface OrganizationQrResponse {
+  organization_id: string
+  users: OrganizationQrUser[]
+}
+
 export interface UpdateMyProfileRequest {
   username?: string
   email?: string
@@ -129,6 +143,10 @@ export const usersApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: [{ type: 'User', id: 'ME' }],
     }),
+    getOrganizationQrCodes: builder.query<OrganizationQrResponse, void>({
+      query: () => '/users/me/organization-qr',
+      providesTags: [{ type: 'User', id: 'ORG_QR' }],
+    }),
   }),
 })
 
@@ -141,5 +159,6 @@ export const {
   useGetMyProfileQuery,
   useUpdateMyProfileMutation,
   useRegenerateMyQrMutation,
+  useGetOrganizationQrCodesQuery,
 } = usersApi
 
