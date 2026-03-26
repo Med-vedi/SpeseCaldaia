@@ -120,6 +120,7 @@ export interface YearlyFinancialsResponse {
   acqua: number
   corrente: number
   manutenzione: number
+  funzionamento_servizio_pct: number
   gasolio_fallback: number | null
   gasoil_deliveries: GasoilDelivery[]
   computed: YearlyFinancialsComputed
@@ -131,6 +132,7 @@ export interface UpdateYearlyFinancialsRequest {
   acqua?: number
   corrente?: number
   manutenzione?: number
+  funzionamento_servizio_pct?: number
   gasolio_fallback?: number | null
 }
 

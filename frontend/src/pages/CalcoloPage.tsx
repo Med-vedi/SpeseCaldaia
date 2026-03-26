@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
-import { Card, Typography, Table, Select } from 'antd'
+import { Card, Typography, Table, Select, Tooltip } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
+import { QuestionCircleOutlined } from '@ant-design/icons'
 import { useAuth } from '../contexts/AuthContext'
 import { useReadings } from '../contexts/ReadingsContext'
 import { useGetYearlyFinancialsQuery } from '../store/api/yearlyFinancialsApi'
@@ -8,6 +9,7 @@ import { useCalculationYear } from '../hooks/useCalculationYear'
 import { yearOverYearDelta, computeBonificoTotalRows, type BonificoTotalRow } from '../lib/bonificoTotals'
 
 const { Title, Text } = Typography
+const BONIFICO_SUM_TOLERANCE = 0.01
 
 interface KCalCostRow {
   key: string
@@ -31,6 +33,12 @@ interface HeatingRow {
   prezzoKCal: number
   kCal: number
   spesa: number
+}
+
+interface PayToMasterRow {
+  key: string
+  name: string
+  payToMaster: number
 }
 
 const CalcoloPage = () => {
@@ -63,19 +71,30 @@ const CalcoloPage = () => {
       prezzoGasolio: prices.gasolio,
       fatturaGasolio: yearlyForCalc?.computed?.fattura_gasolio_total ?? 0,
       manutenzione: yearlyForCalc?.manutenzione ?? 120,
+      funzionamentoServizioPct: yearlyForCalc?.funzionamento_servizio_pct ?? 20,
     }),
     [yearlyForCalc, prices.gasolio]
   )
 
   const { prezzoGasolio, fatturaGasolio } = expenses
 
-  const { rows: totalData, payToMaster } = useMemo(
+  const { rows: totalData } = useMemo(
     () =>
       computeBonificoTotalRows(yearForCalc, kCalData, m3Data, kWData, prices, {
         fatturaGasolio: expenses.fatturaGasolio,
         manutenzione: expenses.manutenzione,
+        funzionamentoServizioPct: expenses.funzionamentoServizioPct,
       }),
-    [yearForCalc, kCalData, m3Data, kWData, prices, expenses.fatturaGasolio, expenses.manutenzione]
+    [
+      yearForCalc,
+      kCalData,
+      m3Data,
+      kWData,
+      prices,
+      expenses.fatturaGasolio,
+      expenses.manutenzione,
+      expenses.funzionamentoServizioPct,
+    ]
   )
 
   const hotWaterData = useMemo<HotWaterRow[]>(() => {
@@ -101,11 +120,9 @@ const CalcoloPage = () => {
   const kCalCostData = useMemo<KCalCostRow[]>(() => {
     const totaleRow = kCalData.find((r) => r.key === 'totale')
     const kCalTotale = yearOverYearDelta(totaleRow?.yearValues, yearForCalc)
-    const funzionamentoServizio = fatturaGasolio * 0.2
-    const prezzoKCal =
-      kCalTotale > 0
-        ? (fatturaGasolio - funzionamentoServizio - totalHotWaterExpenses) / kCalTotale
-        : 0
+    const funzionamentoServizio = fatturaGasolio * (expenses.funzionamentoServizioPct / 100)
+    const heatingBudget = fatturaGasolio - funzionamentoServizio - totalHotWaterExpenses
+    const prezzoKCal = heatingBudget > 0 && kCalTotale > 0 ? heatingBudget / kCalTotale : 0
 
     return [
       {
@@ -117,7 +134,7 @@ const CalcoloPage = () => {
         prezzoKCal,
       },
     ]
-  }, [fatturaGasolio, totalHotWaterExpenses, kCalData, yearForCalc])
+  }, [fatturaGasolio, expenses.funzionamentoServizioPct, kCalData, totalHotWaterExpenses, yearForCalc])
 
   const heatingData = useMemo<HeatingRow[]>(() => {
     const prezzoKCal = kCalCostData[0]?.prezzoKCal || 0
@@ -125,7 +142,7 @@ const CalcoloPage = () => {
 
     return userKCalRows.map((kCalRow) => {
       const kCal = yearOverYearDelta(kCalRow.yearValues, yearForCalc)
-      const spesa = prezzoKCal * kCal
+      const spesa = prezzoKCal > 0 ? kCal * prezzoKCal : 0
 
       return {
         key: kCalRow.key,
@@ -198,13 +215,13 @@ const CalcoloPage = () => {
         ),
       },
       {
-        title: 'Funzionamento di servizio (20%) (€)',
+        title: `Funzionamento di servizio (${expenses.funzionamentoServizioPct.toFixed(1)}%) (€)`,
         dataIndex: 'funzionamentoServizio',
         key: 'funzionamentoServizio',
         width: 200,
         render: () => (
           <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%' }}>
-            {(expenses.fatturaGasolio * 0.2).toFixed(2)}
+            {(expenses.fatturaGasolio * (expenses.funzionamentoServizioPct / 100)).toFixed(2)}
           </span>
         ),
       },
@@ -231,7 +248,7 @@ const CalcoloPage = () => {
         ),
       },
       {
-        title: '(A1-B1-C1):D1 prezzo kCal (€/kCal)',
+        title: 'Prezzo kW calcolato (€/kCal)',
         dataIndex: 'prezzoKCal',
         key: 'prezzoKCal',
         width: 150,
@@ -242,7 +259,7 @@ const CalcoloPage = () => {
         ),
       },
     ],
-    [expenses.fatturaGasolio]
+    [expenses.fatturaGasolio, expenses.funzionamentoServizioPct]
   )
 
   const heatingColumns: ColumnsType<HeatingRow> = useMemo(
@@ -254,7 +271,7 @@ const CalcoloPage = () => {
         width: 120,
       },
       {
-        title: 'Prezzo kCal (€/kCal)',
+        title: 'Prezzo kW calcolato (€/kCal)',
         dataIndex: 'prezzoKCal',
         key: 'prezzoKCal',
         width: 120,
@@ -299,21 +316,21 @@ const CalcoloPage = () => {
         width: 120,
       },
       {
-        title: 'Da dare a Dino (€)',
-        dataIndex: 'payToMaster',
-        key: 'payToMaster',
-        width: 150,
-        render: () => (
-          <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%' }}>
-            {payToMaster.toFixed(2)}
-          </span>
-        ),
-      },
-      {
         title: 'Spese individuali acqua calda (€)',
         dataIndex: 'speseAcquaCalda',
         key: 'speseAcquaCalda',
         width: 200,
+        render: (value: number) => (
+          <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%' }}>
+            {value.toFixed(2)}
+          </span>
+        ),
+      },
+      {
+        title: 'Funzionamento servizio caldaia (€)',
+        dataIndex: 'funzionamentoServizio',
+        key: 'funzionamentoServizio',
+        width: 180,
         render: (value: number) => (
           <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%' }}>
             {value.toFixed(2)}
@@ -343,8 +360,54 @@ const CalcoloPage = () => {
         ),
       },
     ],
-    [payToMaster]
+    []
   )
+
+  const payToMasterData = useMemo<PayToMasterRow[]>(
+    () =>
+      totalData.map((row) => ({
+        key: row.key,
+        name: row.name,
+        payToMaster: row.payToMaster,
+      })),
+    [totalData]
+  )
+
+  const payToMasterColumns: ColumnsType<PayToMasterRow> = useMemo(
+    () => [
+      {
+        title: '',
+        dataIndex: 'name',
+        key: 'name',
+        width: 120,
+      },
+      {
+        title: 'Da dare a Dino (€)',
+        dataIndex: 'payToMaster',
+        key: 'payToMaster',
+        width: 180,
+        render: (value: number) => (
+          <span style={{ padding: '4px 8px', display: 'inline-block', width: '100%', fontWeight: 'bold' }}>
+            {value.toFixed(2)}
+          </span>
+        ),
+      },
+    ],
+    []
+  )
+
+  const payToMasterTotal = useMemo(
+    () => payToMasterData.reduce((sum, row) => sum + (Number.isFinite(row.payToMaster) ? row.payToMaster : 0), 0),
+    [payToMasterData]
+  )
+
+  const totalTotaleSum = useMemo(
+    () => totalData.reduce((sum, row) => sum + (Number.isFinite(row.totale) ? row.totale : 0), 0),
+    [totalData]
+  )
+  const bollettaTotal = expenses.fatturaGasolio
+  const bonificoSummaryDelta = Math.abs(totalTotaleSum - bollettaTotal)
+  const isBonificoSummaryMismatch = bonificoSummaryDelta > BONIFICO_SUM_TOLERANCE
 
   return (
     <div className="p-4 md:p-6 flex flex-col gap-4">
@@ -372,7 +435,12 @@ const CalcoloPage = () => {
       )}
 
       <Card className="mb-4 md:mb-6">
-        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">CALCOLO SPESE INDIVIDUALI ACQUA CALDA</Title>
+        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">
+          CALCOLO SPESE INDIVIDUALI ACQUA CALDA{' '}
+          <Tooltip title="Per ogni utente: Spesa acqua calda = M3 annui * (Prezzo gasolio * 10). La somma di tutte le righe entra nel budget totale bolletta.">
+            <QuestionCircleOutlined />
+          </Tooltip>
+        </Title>
         <div className="mb-3 md:mb-4">
           <Text className="text-xs md:text-sm">
             M3 acqua per euro al m3 acqua calda che varia in base al prezzo gasolio. Esempio: prezzo gasolio 1,28 fa m3*(1,28*10)
@@ -387,17 +455,33 @@ const CalcoloPage = () => {
               bordered
               size="small"
               scroll={{ x: 'max-content' }}
+              summary={() => (
+                <Table.Summary fixed>
+                  <Table.Summary.Row>
+                    <Table.Summary.Cell index={0} colSpan={3}>
+                      <strong>Somma Totale</strong>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={3}>
+                      <strong>{totalHotWaterExpenses.toFixed(2)}</strong>
+                    </Table.Summary.Cell>
+                  </Table.Summary.Row>
+                </Table.Summary>
+              )}
             />
           </div>
         </div>
       </Card>
 
       <Card className="mb-4 md:mb-6">
-        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">CALCOLO COSTO kCal (riscaldamento)</Title>
+        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">
+          CALCOLO COSTO kCal (riscaldamento){' '}
+          <Tooltip title="Flusso: 1) Funzionamento = Fattura Gasolio * %. 2) Budget riscaldamento = Fattura Gasolio - Funzionamento - Spese acqua calda. 3) Prezzo kCal = Budget riscaldamento / kCal totale.">
+            <QuestionCircleOutlined />
+          </Tooltip>
+        </Title>
         <div className="mb-3 md:mb-4">
           <Text className="text-xs md:text-sm">
-            Al costo totale fattura gasolio sottraggo le spese di funzionamento servizio caldaia e il totale spese acqua calda,
-            ciò il resto lo divido per la somma totale dei kCal, ciò di Dino, Vladi, Cristian
+            Il prezzo kCal segue il valore annuale di Elettricità (comune), quindi cambia in base all&apos;anno selezionato.
           </Text>
         </div>
         <div className="overflow-x-auto -mx-4 md:mx-0">
@@ -415,7 +499,12 @@ const CalcoloPage = () => {
       </Card>
 
       <Card className="mb-4 md:mb-6">
-        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">CALCOLO INDIVIDUALE SPESE RISCALDAMENTO</Title>
+        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">
+          CALCOLO INDIVIDUALE SPESE RISCALDAMENTO{' '}
+          <Tooltip title="Per ogni utente: Spesa riscaldamento = kCal utente * Prezzo kCal calcolato.">
+            <QuestionCircleOutlined />
+          </Tooltip>
+        </Title>
         <div className="overflow-x-auto -mx-4 md:mx-0">
           <div className="min-w-full px-4 md:px-0">
             <Table
@@ -431,7 +520,43 @@ const CalcoloPage = () => {
       </Card>
 
       <Card>
-        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">CALCOLO IMPORTI TOTALI (BONIFICO)</Title>
+        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">
+          DA DARE A DINO (CONTANTI){' '}
+          <Tooltip title="Quota cassa separata dal bonifico: (manutenzione + corrente comune + acqua fredda + funzionamento servizio) / numero utenti.">
+            <QuestionCircleOutlined />
+          </Tooltip>
+        </Title>
+        <div className="overflow-x-auto -mx-4 md:mx-0 mb-4 md:mb-6">
+          <div className="min-w-full px-4 md:px-0">
+            <Table<PayToMasterRow>
+              columns={payToMasterColumns}
+              dataSource={payToMasterData}
+              pagination={false}
+              bordered
+              size="small"
+              scroll={{ x: 'max-content' }}
+              summary={() => (
+                <Table.Summary fixed>
+                  <Table.Summary.Row>
+                    <Table.Summary.Cell index={0}>
+                      <strong>Somma Totale</strong>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={1}>
+                      <strong>{payToMasterTotal.toFixed(2)}</strong>
+                    </Table.Summary.Cell>
+                  </Table.Summary.Row>
+                </Table.Summary>
+              )}
+            />
+          </div>
+        </div>
+
+        <Title level={4} className="mb-3 md:mb-4 text-sm md:text-base">
+          CALCOLO IMPORTI TOTALI (BONIFICO){' '}
+          <Tooltip title="Totale per utente = Spese acqua calda + Funzionamento servizio + Spese riscaldamento. La Somma Totale deve coincidere con Totale bolletta (Fattura Gasolio).">
+            <QuestionCircleOutlined />
+          </Tooltip>
+        </Title>
         <div className="overflow-x-auto -mx-4 md:mx-0">
           <div className="min-w-full px-4 md:px-0">
             <Table<BonificoTotalRow>
@@ -441,6 +566,27 @@ const CalcoloPage = () => {
               bordered
               size="small"
               scroll={{ x: 'max-content' }}
+              summary={() => (
+                <Table.Summary fixed>
+                  <Table.Summary.Row>
+                    <Table.Summary.Cell index={0} colSpan={4}>
+                      <strong>Somma Totale</strong>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={4}>
+                      {isBonificoSummaryMismatch ? (
+                        <Tooltip
+                          color="red"
+                          title={`Errore coerenza: Somma Totale (${totalTotaleSum.toFixed(2)}€) diversa da Totale bolletta (${bollettaTotal.toFixed(2)}€). Scarto: ${bonificoSummaryDelta.toFixed(2)}€.`}
+                        >
+                          <strong style={{ color: '#ff4d4f' }}>{totalTotaleSum.toFixed(2)}</strong>
+                        </Tooltip>
+                      ) : (
+                        <strong>{totalTotaleSum.toFixed(2)}</strong>
+                      )}
+                    </Table.Summary.Cell>
+                  </Table.Summary.Row>
+                </Table.Summary>
+              )}
             />
           </div>
         </div>

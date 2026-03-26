@@ -6,10 +6,47 @@ import { useReadings, type KCalRow, type M3Row, type KWRow } from '../contexts/R
 import { toFiniteNumberOrNull } from '../contexts/utils'
 import type { CounterType } from '../store/api/models'
 import UpdateReadingsDrawer from '../components/UpdateReadingsDrawer'
+import FloatingCalculator from '../components/FloatingCalculator.tsx'
 
 const { Title } = Typography
 
 type MeterRow = KCalRow | M3Row | KWRow
+
+const EUROPEAN_LOCALE = 'it-IT'
+
+function formatEuropeanNumber(value: number, precision: number) {
+  return new Intl.NumberFormat(EUROPEAN_LOCALE, {
+    minimumFractionDigits: precision,
+    maximumFractionDigits: precision,
+  }).format(value)
+}
+
+function parseEuropeanNumber(value: string | undefined) {
+  if (!value) return NaN
+  const cleaned = value.trim().replace(/\s/g, '')
+  if (!cleaned) return NaN
+
+  const lastComma = cleaned.lastIndexOf(',')
+  const lastDot = cleaned.lastIndexOf('.')
+
+  // If both separators exist, the rightmost one is treated as decimal separator.
+  if (lastComma !== -1 && lastDot !== -1) {
+    if (lastComma > lastDot) {
+      // Example: 85.814,3 -> 85814.3
+      return Number(cleaned.replace(/\./g, '').replace(',', '.'))
+    }
+    // Example: 85,814.3 -> 85814.3
+    return Number(cleaned.replace(/,/g, ''))
+  }
+
+  // Only comma present -> decimal comma.
+  if (lastComma !== -1) {
+    return Number(cleaned.replace(',', '.'))
+  }
+
+  // Only dot present -> dot decimal.
+  return Number(cleaned)
+}
 
 function scrollMeterTablesToEnd(root: HTMLElement | null) {
   if (!root) return
@@ -17,6 +54,16 @@ function scrollMeterTablesToEnd(root: HTMLElement | null) {
     const max = node.scrollWidth - node.clientWidth
     if (max > 0) node.scrollLeft = max
   })
+}
+
+function toDisplayPersonName(name: string): string {
+  const raw = name.replace(/\s*[-—]\s*Calore\s*$/i, '').trim()
+  if (!raw) return name
+  return raw
+    .split(/\s+/)
+    .map((w) => (w ? w.charAt(0).toLocaleUpperCase('it-IT') + w.slice(1).toLocaleLowerCase('it-IT') : ''))
+    .filter(Boolean)
+    .join(' ')
 }
 
 const ContattoriPage = () => {
@@ -131,7 +178,7 @@ const ContattoriPage = () => {
 
         const formatValue = (val: number | null) => {
           if (val === null) return 'N/A'
-          return precision === 0 ? val.toFixed(0) : val.toFixed(precision)
+          return formatEuropeanNumber(val, precision)
         }
 
         Modal.confirm({
@@ -152,9 +199,7 @@ const ContattoriPage = () => {
     const d = record.differenza
     const text =
       typeof d === 'number' && Number.isFinite(d)
-        ? precision === 0
-          ? String(Math.round(d))
-          : d.toFixed(1)
+        ? formatEuropeanNumber(d, precision)
         : '—'
     return (
       <span
@@ -182,14 +227,13 @@ const ContattoriPage = () => {
 
     const renderYearCell = (year: number, record: MeterRow, precision: number) => {
       const isTotal = record.key === 'totale'
-      const isSharedElectric = record.counterType === 'electric_common'
       const raw = toFiniteNumberOrNull(record.yearValues[year])
 
-      if (isTotal || isSharedElectric) {
+      if (isTotal) {
         if (raw === null) return <span>-</span>
         return (
           <span className="font-semibold">
-            {precision === 0 ? raw.toFixed(0) : raw.toFixed(1)}
+            {formatEuropeanNumber(raw, precision)}
           </span>
         )
       }
@@ -220,6 +264,21 @@ const ContattoriPage = () => {
           style={{ width: '100%' }}
           precision={precision}
           controls={false}
+          decimalSeparator=","
+          formatter={(value, info) => {
+            if (info.userTyping) {
+              return info.input
+            }
+            if (typeof value === 'number' && Number.isFinite(value)) {
+              return formatEuropeanNumber(value, precision)
+            }
+            if (typeof value === 'string' && value !== '') {
+              const parsed = parseEuropeanNumber(value)
+              return Number.isFinite(parsed) ? formatEuropeanNumber(parsed, precision) : value
+            }
+            return ''
+          }}
+          parser={(value) => parseEuropeanNumber(value)}
         />
       )
     }
@@ -243,7 +302,7 @@ const ContattoriPage = () => {
           width: nameColWidth,
           fixed: 'left' as const,
           render: (_: string, record: MeterRow) => {
-            const name = record.name
+            const name = toDisplayPersonName(record.name)
             const label = compactMeterNames ? name.slice(0, 2) : name
             return (
               <Tooltip title={compactMeterNames ? name : undefined}>
@@ -389,7 +448,7 @@ const ContattoriPage = () => {
           title={
             <span className="text-sm md:text-base">
               <ThunderboltOutlined style={{ marginRight: 8, color: '#faad14' }} />
-              kW - Contatore Elettrico
+              kW - Contatore Elettrico Comune (Organizzazione)
             </span>
           }
         >
@@ -422,6 +481,7 @@ const ContattoriPage = () => {
         availableYears={getAvailableYears()}
         onUpdate={updateReadings}
       />
+      <FloatingCalculator />
     </div>
   )
 }

@@ -1,9 +1,9 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useMemo, useState } from 'react'
 import { Drawer, Button, Form, Space, Card, InputNumber, App, Select } from 'antd'
 import { FireOutlined, DropboxOutlined } from '@ant-design/icons'
 import type { KCalRow, M3Row } from '../contexts/ReadingsContext'
 import type { CounterValue, Counter } from '../store/api/models'
-import { getValueForCounter } from '../contexts/utils'
+import { getValueForCounter, formatMeterRowDisplayName } from '../contexts/utils'
 
 interface UpdateReadingsDrawerProps {
   open: boolean
@@ -31,6 +31,18 @@ const UpdateReadingsDrawer = ({
   const [drawerWidth, setDrawerWidth] = useState(480)
   const currentYear = new Date().getFullYear()
   const [selectedYear, setSelectedYear] = useState<number>(currentYear)
+  const yearOptions = useMemo(() => {
+    const maxAvailableYear = availableYears.length > 0 ? Math.max(...availableYears) : currentYear
+    const nextAvailableYear = maxAvailableYear + 1
+    const years = new Set<number>([
+      ...availableYears,
+      currentYear,
+      selectedYear,
+      selectedYear + 1,
+      nextAvailableYear,
+    ])
+    return Array.from(years).sort((a, b) => a - b)
+  }, [availableYears, currentYear, selectedYear])
 
   useEffect(() => {
     const updateWidth = () => {
@@ -136,7 +148,7 @@ const UpdateReadingsDrawer = ({
       acc[groupKey] = {
         kCalRow: null,
         m3Row: null,
-        userName: counter?.name || row.name
+        userName: counter ? formatMeterRowDisplayName(counter) : row.name
       }
     }
     if (row.counterType === 'heat') {
@@ -149,7 +161,7 @@ const UpdateReadingsDrawer = ({
 
   return (
     <Drawer
-      title="Aggiorna Letture Mensili"
+      title="Aggiorna Letture Annuali"
       placement="right"
       onClose={onClose}
       open={open}
@@ -175,7 +187,7 @@ const UpdateReadingsDrawer = ({
             style={{ width: '100%' }}
             size="large"
           >
-            {availableYears.map(year => (
+            {yearOptions.map(year => (
               <Select.Option key={year} value={year}>
                 {year}
               </Select.Option>

@@ -17,6 +17,11 @@ function yearlyTag(organization_id: string, year: number) {
 
 export const yearlyFinancialsApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    getYearlyFinancialYears: builder.query<{ years: number[] }, { organization_id: string }>({
+      query: ({ organization_id }) =>
+        `/yearly-financials/years?organization_id=${encodeURIComponent(organization_id)}`,
+      providesTags: (_r, _e, { organization_id }) => [yearlyTag(organization_id, -1)],
+    }),
     getYearlyFinancials: builder.query<
       YearlyFinancialsResponse,
       { organization_id: string; year: number }
@@ -33,7 +38,10 @@ export const yearlyFinancialsApi = apiSlice.injectEndpoints({
         body,
       }),
       transformResponse: (r: YearlyFinancialsResponse) => normalizeYearlyFinancialsResponse(r),
-      invalidatesTags: (_r, _e, { organization_id, year }) => [yearlyTag(organization_id, year)],
+      invalidatesTags: (_r, _e, { organization_id, year }) => [
+        yearlyTag(organization_id, year),
+        yearlyTag(organization_id, -1),
+      ],
     }),
     createGasoilDelivery: builder.mutation<GasoilDelivery, CreateGasoilDeliveryRequest>({
       query: (body) => ({
@@ -44,6 +52,7 @@ export const yearlyFinancialsApi = apiSlice.injectEndpoints({
       transformResponse: (r: GasoilDelivery) => normalizeGasoilDelivery(r),
       invalidatesTags: (_r, _e, { organization_id, year }) => [
         yearlyTag(organization_id, year),
+        yearlyTag(organization_id, -1),
       ],
     }),
     updateGasoilDelivery: builder.mutation<
@@ -58,6 +67,7 @@ export const yearlyFinancialsApi = apiSlice.injectEndpoints({
       transformResponse: (r: GasoilDelivery) => normalizeGasoilDelivery(r),
       invalidatesTags: (_r, _e, { organization_id, year }) => [
         yearlyTag(organization_id, year),
+        yearlyTag(organization_id, -1),
       ],
     }),
     deleteGasoilDelivery: builder.mutation<
@@ -70,13 +80,16 @@ export const yearlyFinancialsApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (_r, _e, { organization_id, year }) => [
         yearlyTag(organization_id, year),
+        yearlyTag(organization_id, -1),
       ],
     }),
   }),
 })
 
 export const {
+  useGetYearlyFinancialYearsQuery,
   useGetYearlyFinancialsQuery,
+  useLazyGetYearlyFinancialsQuery,
   useUpdateYearlyFinancialsMutation,
   useCreateGasoilDeliveryMutation,
   useUpdateGasoilDeliveryMutation,

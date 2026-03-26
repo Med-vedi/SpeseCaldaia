@@ -1,5 +1,5 @@
 import { Card, Typography } from 'antd'
-import { ContactsOutlined, DollarOutlined, CalculatorOutlined, BarChartOutlined } from '@ant-design/icons'
+import { ContactsOutlined, DollarOutlined, CalculatorOutlined, BarChartOutlined, PrinterOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 
 const { Title, Text } = Typography
@@ -32,6 +32,12 @@ const DashboardPage = () => {
       description: 'View statistics',
       path: '/main/statistica',
     },
+    {
+      icon: <PrinterOutlined style={{ fontSize: '24px', color: '#eb2f96' }} />,
+      title: 'Stampa Report',
+      description: 'Print all calculations',
+      path: '/main/print',
+    },
   ]
 
   const handleCardClick = (path: string) => {
@@ -46,7 +52,7 @@ const DashboardPage = () => {
         <Text className="text-lg text-gray-600 block mb-4 text-center">
           Manage your boiler expenses efficiently
         </Text>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-8">
           {cardConfigs.map((config) => (
             <Card
               key={config.path}

@@ -87,6 +87,7 @@ export function normalizeYearlyFinancialsResponse(data: YearlyFinancialsResponse
     acqua: Number(data.acqua),
     corrente: Number(data.corrente),
     manutenzione: Number(data.manutenzione),
+    funzionamento_servizio_pct: Number(data.funzionamento_servizio_pct ?? 20),
     gasolio_fallback,
     gasoil_deliveries: (data.gasoil_deliveries ?? []).map(normalizeGasoilDelivery),
     computed: {

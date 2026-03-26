@@ -13,6 +13,7 @@ import {
   HomeOutlined,
   BankOutlined,
   QrcodeOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Routes, Route, useLocation } from 'react-router-dom'
@@ -24,6 +25,8 @@ import BonificoPage from './BonificoPage'
 import PrezziPage from './PrezziPage'
 import StatisticaPage from './StatisticaPage'
 import ProfilePage from './ProfilePage'
+import BollettePage from './BollettePage'
+import PrintReportPage from './PrintReportPage'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
@@ -61,6 +64,16 @@ const MainPage = () => {
       label: 'Dashboard',
     },
     {
+      key: '/main/bollette',
+      icon: <FileTextOutlined />,
+      label: 'Bollette',
+    },
+    {
+      key: '/main/prezzi',
+      icon: <EuroOutlined />,
+      label: 'Prezzi',
+    },
+    {
       key: '/main/contattori',
       icon: <ContactsOutlined />,
       label: 'Contattori',
@@ -79,11 +92,6 @@ const MainPage = () => {
       key: '/main/bonifico',
       icon: <BankOutlined />,
       label: 'Bonifico',
-    },
-    {
-      key: '/main/prezzi',
-      icon: <EuroOutlined />,
-      label: 'Prezzi',
     },
     {
       key: '/main/statistica',
@@ -270,6 +278,8 @@ const MainPage = () => {
         >
           <Routes>
             <Route path="/" element={<DashboardPage />} />
+            <Route path="/print" element={<PrintReportPage />} />
+            <Route path="/bollette" element={<BollettePage />} />
             <Route path="/contattori" element={<ContattoriPage />} />
             <Route path="/spese" element={<SpesePage />} />
             <Route path="/calcolo" element={<CalcoloPage />} />

@@ -97,9 +97,9 @@ router.post('/', authenticate, async (req, res) => {
       })
     }
 
-    if (!['heat', 'water', 'electric', 'electric_common'].includes(counter_type)) {
+    if (!['heat', 'water', 'electric_common'].includes(counter_type)) {
       return res.status(400).json({
-        error: 'Invalid counter_type. Must be heat, water, electric, or electric_common'
+        error: 'Invalid counter_type. Must be heat, water, or electric_common'
       })
     }
 
@@ -153,9 +153,9 @@ router.put('/:id', authenticate, async (req, res) => {
     }
 
     // Validate counter_type if provided
-    if (counter_type && !['heat', 'water', 'electric', 'electric_common'].includes(counter_type)) {
+    if (counter_type && !['heat', 'water', 'electric_common'].includes(counter_type)) {
       return res.status(400).json({
-        error: 'Invalid counter_type. Must be heat, water, electric, or electric_common'
+        error: 'Invalid counter_type. Must be heat, water, or electric_common'
       })
     }
 

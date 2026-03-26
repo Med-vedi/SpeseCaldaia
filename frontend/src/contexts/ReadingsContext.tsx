@@ -38,6 +38,7 @@ export interface Expenses {
   prezzoGasolio: number
   fatturaGasolio: number
   manutenzione: number
+  funzionamentoServizioPct: number
   corrente: number
 }
 
@@ -197,6 +198,7 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     prezzoGasolio: prices.gasolio,
     fatturaGasolio: yearlyData?.computed?.fattura_gasolio_total ?? 0,
     manutenzione: yearlyData?.manutenzione ?? 120,
+    funzionamentoServizioPct: yearlyData?.funzionamento_servizio_pct ?? 20,
     corrente: 0,
   }), [prices.gasolio, yearlyData])
 
@@ -222,27 +224,46 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
 
   const { kCalData, m3Data, kWData } = useMemo(() => {
     const years = meterDisplayYearsAsc
+    const preferredOrder = ['dino', 'vladi', 'cristian']
+
+    const normalizeName = (value: string | null | undefined) =>
+      String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+
+    const rankByPreferredUser = (name: string | null | undefined) => {
+      const normalized = normalizeName(name)
+      const idx = preferredOrder.findIndex((token) => normalized.includes(token))
+      return idx === -1 ? Number.MAX_SAFE_INTEGER : idx
+    }
+
+    const sortByPreferredUsers = <T extends { name?: string | null }>(items: T[]) =>
+      items.slice().sort((a, b) => {
+        const rankA = rankByPreferredUser(a.name)
+        const rankB = rankByPreferredUser(b.name)
+        if (rankA !== rankB) return rankA - rankB
+        return normalizeName(a.name).localeCompare(normalizeName(b.name))
+      })
+
     const kCalRows = addKCalTotal(
-      filterCountersByType(counters, 'heat').map((counter) =>
+      sortByPreferredUsers(filterCountersByType(counters, 'heat')).map((counter) =>
         transformCounterToYearRow(counter, years, allCounterValues)
       ),
       years
     )
 
     const m3Rows = addM3Total(
-      filterCountersByType(counters, 'water').map((counter) =>
+      sortByPreferredUsers(filterCountersByType(counters, 'water')).map((counter) =>
         transformCounterToYearRow(counter, years, allCounterValues)
       ),
       years
     )
 
+    // kW is organization-wide: expose only the shared electric counter.
     const kWRows = filterElectricCounters(counters)
-      .slice()
-      .sort((a, b) => {
-        const aC = a.counter_type === 'electric_common' ? 1 : 0
-        const bC = b.counter_type === 'electric_common' ? 1 : 0
-        return aC - bC
-      })
+      .filter((counter) => counter.counter_type === 'electric_common')
       .map((counter) => transformCounterToYearRow(counter, years, allCounterValues))
 
     return { kCalData: kCalRows, m3Data: m3Rows, kWData: kWRows }
@@ -386,12 +407,13 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
 
   const updateExpense = useCallback(
     async (key: keyof Expenses, value: number) => {
-      if (!profile?.organization_id || key !== 'manutenzione') return
+      if (!profile?.organization_id || !['manutenzione', 'funzionamentoServizioPct'].includes(key)) return
       try {
         await updateYearlyFinancials({
           organization_id: profile.organization_id,
           year: financialYear,
-          manutenzione: value,
+          ...(key === 'manutenzione' ? { manutenzione: value } : {}),
+          ...(key === 'funzionamentoServizioPct' ? { funzionamento_servizio_pct: value } : {}),
         }).unwrap()
       } catch (error) {
         console.error('Error saving expense:', error)
@@ -410,9 +432,10 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     const kWDiff = coalesceFiniteNumber(sharedKwRow?.differenza)
     const corrente = kWDiff * prices.corrente
 
-    const funzionamentoServizio = expenses.fatturaGasolio * 0.2
+    const funzionamentoServizio = expenses.fatturaGasolio * (expenses.funzionamentoServizioPct / 100)
 
-    const totalExpenses = expenses.fatturaGasolio + expenses.manutenzione + corrente + acquaFredda + funzionamentoServizio
+    // Gasolio total is excluded from shared pay-to-master amount.
+    const totalExpenses = expenses.manutenzione + corrente + acquaFredda + funzionamentoServizio
 
     const userCount = kCalData.filter(r => r.key !== 'totale').length || 3
     return totalExpenses / userCount

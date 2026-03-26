@@ -61,6 +61,7 @@ async function buildYearlyPayload(organizationId, year) {
     acqua: settings ? Number(settings.acqua) : 2,
     corrente: settings ? Number(settings.corrente) : 0.14,
     manutenzione: settings ? Number(settings.manutenzione) : 120,
+    funzionamento_servizio_pct: settings ? Number(settings.funzionamento_servizio_pct) : 20,
     gasolio_fallback: fallback,
     gasoil_deliveries: deliveries || [],
     computed: {
@@ -97,13 +98,69 @@ router.get('/', authenticate, async (req, res) => {
 })
 
 /**
+ * GET /api/yearly-financials/years?organization_id=
+ * Returns available years from DB + current year + next year.
+ */
+router.get('/years', authenticate, async (req, res) => {
+  try {
+    const { organization_id } = req.query
+    if (!organization_id) {
+      return res.status(400).json({ error: 'organization_id is required' })
+    }
+    const ok = await userMayAccessOrganization(req.user.id, organization_id)
+    if (!ok) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+
+    const { data: settingsRows, error: settingsErr } = await supabase
+      .from('yearly_organization_settings')
+      .select('year')
+      .eq('organization_id', organization_id)
+
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message })
+    }
+
+    const { data: deliveriesRows, error: deliveriesErr } = await supabase
+      .from('gasoil_deliveries')
+      .select('year')
+      .eq('organization_id', organization_id)
+
+    if (deliveriesErr) {
+      return res.status(500).json({ error: deliveriesErr.message })
+    }
+
+    const nowYear = new Date().getFullYear()
+    const set = new Set([nowYear, nowYear + 1])
+    ;(settingsRows || []).forEach((r) => set.add(Number(r.year)))
+    ;(deliveriesRows || []).forEach((r) => set.add(Number(r.year)))
+
+    const years = Array.from(set)
+      .filter((y) => Number.isFinite(y))
+      .sort((a, b) => b - a)
+
+    return res.json({ years })
+  } catch (e) {
+    return res.status(500).json({ error: e.message || 'Internal server error' })
+  }
+})
+
+/**
  * PUT /api/yearly-financials
  * Upsert yearly_organization_settings for one org/year
- * Body: { organization_id, year, acqua?, corrente?, manutenzione?, gasolio_fallback? } (null clears fallback)
+ * Body: { organization_id, year, acqua?, corrente?, manutenzione?, funzionamento_servizio_pct?, gasolio_fallback? } (null clears fallback)
  */
 router.put('/', authenticate, async (req, res) => {
   try {
-    const { organization_id, year: yearRaw, acqua, corrente, manutenzione, gasolio_fallback } =
+    const {
+      organization_id,
+      year: yearRaw,
+      acqua,
+      corrente,
+      manutenzione,
+      funzionamento_servizio_pct,
+      gasolio_fallback,
+    } =
       req.body
 
     if (!organization_id) {
@@ -131,6 +188,7 @@ router.put('/', authenticate, async (req, res) => {
       acqua: existing ? Number(existing.acqua) : 2,
       corrente: existing ? Number(existing.corrente) : 0.14,
       manutenzione: existing ? Number(existing.manutenzione) : 120,
+      funzionamento_servizio_pct: existing ? Number(existing.funzionamento_servizio_pct) : 20,
       gasolio_fallback: existing?.gasolio_fallback != null ? Number(existing.gasolio_fallback) : null,
     }
 
@@ -154,6 +212,13 @@ router.put('/', authenticate, async (req, res) => {
         return res.status(400).json({ error: 'Invalid manutenzione' })
       }
       row.manutenzione = v
+    }
+    if (funzionamento_servizio_pct !== undefined && funzionamento_servizio_pct !== null) {
+      const v = parseFloat(funzionamento_servizio_pct)
+      if (Number.isNaN(v) || v < 0 || v > 100) {
+        return res.status(400).json({ error: 'Invalid funzionamento_servizio_pct' })
+      }
+      row.funzionamento_servizio_pct = v
     }
     if (Object.prototype.hasOwnProperty.call(req.body, 'gasolio_fallback')) {
       if (gasolio_fallback === null || gasolio_fallback === '') {

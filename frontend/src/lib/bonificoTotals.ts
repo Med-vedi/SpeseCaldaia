@@ -16,6 +16,7 @@ export interface BonificoTotalRow {
   key: string
   name: string
   payToMaster: number
+  funzionamentoServizio: number
   speseAcquaCalda: number
   speseRiscaldamento: number
   totale: number
@@ -30,6 +31,7 @@ export interface BonificoPrices {
 export interface BonificoExpenses {
   fatturaGasolio: number
   manutenzione: number
+  funzionamentoServizioPct: number
 }
 
 /**
@@ -44,7 +46,7 @@ export function computeBonificoTotalRows(
   expenses: BonificoExpenses
 ): { rows: BonificoTotalRow[]; payToMaster: number } {
   const { acqua, corrente, gasolio: prezzoGasolio } = prices
-  const { fatturaGasolio, manutenzione } = expenses
+  const { fatturaGasolio, manutenzione, funzionamentoServizioPct } = expenses
 
   const totaleM3Row = m3Data.find((r) => r.key === 'totale')
   const m3Diff = yearOverYearDelta(totaleM3Row?.yearValues, yearForCalc)
@@ -54,12 +56,13 @@ export function computeBonificoTotalRows(
   const kWDiff = yearOverYearDelta(sharedKwRow?.yearValues, yearForCalc)
   const correnteEur = kWDiff * corrente
 
-  const funzionamentoServizio = fatturaGasolio * 0.2
-  const totalExpenses =
-    fatturaGasolio + manutenzione + correnteEur + acquaFredda + funzionamentoServizio
+  const funzionamentoServizio = fatturaGasolio * (funzionamentoServizioPct / 100)
+  // Gasolio total is informational and excluded from shared pay-to-master amount.
+  const totalExpenses = manutenzione + correnteEur + acquaFredda + funzionamentoServizio
 
   const userCount = kCalData.filter((r) => r.key !== 'totale').length || 3
   const payToMaster = totalExpenses / userCount
+  const funzionamentoServizioPerUser = funzionamentoServizio / userCount
 
   const userM3Rows = m3Data.filter((r) => r.key !== 'totale')
   const hotWaterData = userM3Rows.map((m3Row) => {
@@ -68,19 +71,16 @@ export function computeBonificoTotalRows(
     return { key: m3Row.key, name: m3Row.name, m3, spesa }
   })
 
+  const totaleKCalRow = kCalData.find((r) => r.key === 'totale')
+  const kCalTotale = yearOverYearDelta(totaleKCalRow?.yearValues, yearForCalc)
   const totalHotWaterExpenses = hotWaterData.reduce((sum, row) => sum + row.spesa, 0)
-
-  const totaleRow = kCalData.find((r) => r.key === 'totale')
-  const kCalTotale = yearOverYearDelta(totaleRow?.yearValues, yearForCalc)
-  const prezzoKCal =
-    kCalTotale > 0
-      ? (fatturaGasolio - funzionamentoServizio - totalHotWaterExpenses) / kCalTotale
-      : 0
+  const heatingBudget = fatturaGasolio - funzionamentoServizio - totalHotWaterExpenses
+  const prezzoKCal = heatingBudget > 0 && kCalTotale > 0 ? heatingBudget / kCalTotale : 0
 
   const userKCalRows = kCalData.filter((r) => r.key !== 'totale')
   const heatingData = userKCalRows.map((kCalRow) => {
     const kCal = yearOverYearDelta(kCalRow.yearValues, yearForCalc)
-    const spesa = prezzoKCal * kCal
+    const spesa = prezzoKCal > 0 ? kCal * prezzoKCal : 0
     return { key: kCalRow.key, name: kCalRow.name, spesa }
   })
 
@@ -94,12 +94,15 @@ export function computeBonificoTotalRows(
     const speseAcquaCalda = hwRow?.spesa ?? 0
     const speseRiscaldamento = heatingRow?.spesa ?? 0
     const key = hwRow?.key ?? heatingRow?.key ?? name
-    const totale = payToMaster + speseAcquaCalda + speseRiscaldamento
+    // "Da dare a Dino" is paid in cash, so it is shown separately and excluded from bonifico total.
+    // Funzionamento servizio is included in bonifico total per user.
+    const totale = funzionamentoServizioPerUser + speseAcquaCalda + speseRiscaldamento
 
     return {
       key,
       name,
       payToMaster,
+      funzionamentoServizio: funzionamentoServizioPerUser,
       speseAcquaCalda,
       speseRiscaldamento,
       totale,
