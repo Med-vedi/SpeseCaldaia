@@ -1,6 +1,6 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useEffect, useRef } from 'react'
-import { Form, Input, Button, Card, Typography, App } from 'antd'
+import { useEffect, useRef, useState } from 'react'
+import { Form, Input, Button, Card, Typography, App, Alert } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { useLoginMutation, useQrLoginMutation } from '../store/api/authApi'
 import { useAuth } from '../contexts/AuthContext'
@@ -29,8 +29,12 @@ const LoginPage = () => {
   const { message } = App.useApp()
   const { user, loading } = useAuth()
   const qrLoginHandledRef = useRef(false)
+  const [qrDebugStatus, setQrDebugStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle')
+  const [qrDebugError, setQrDebugError] = useState('')
   const prefilledUsername = searchParams.get('u') || searchParams.get('username') || ''
   const welcomeName = prefilledUsername ? capitalizeName(prefilledUsername) : ''
+  const qrToken = searchParams.get('qr') || ''
+  const runtimeApiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
   // Redirect to main if already authenticated
   useEffect(() => {
@@ -51,30 +55,34 @@ const LoginPage = () => {
   }, [prefilledUsername, form])
 
   useEffect(() => {
-    const qrToken = searchParams.get('qr')
     if (!qrToken || qrLoginHandledRef.current) {
       return
     }
 
     qrLoginHandledRef.current = true
+    setQrDebugStatus('running')
+    setQrDebugError('')
 
     const runQrLogin = async () => {
       try {
         await qrLogin({ token: qrToken }).unwrap()
+        setQrDebugStatus('success')
         message.success('QR login successful!')
         navigate('/main', { replace: true })
       } catch (error) {
+        setQrDebugStatus('error')
         let errorMessage = 'QR login failed'
         if (error && typeof error === 'object' && 'data' in error) {
           const errorData = error.data as { error?: string }
           errorMessage = errorData?.error || errorMessage
         }
+        setQrDebugError(errorMessage)
         message.error(errorMessage)
       }
     }
 
     runQrLogin()
-  }, [searchParams, qrLogin, navigate, message])
+  }, [qrToken, qrLogin, navigate, message])
 
   // Show loading while checking authentication
   if (loading) {
@@ -134,6 +142,23 @@ const LoginPage = () => {
             Please sign in to your account
           </p>
         </div>
+
+        {qrToken ? (
+          <Alert
+            className="mb-4"
+            type={qrDebugStatus === 'error' ? 'error' : qrDebugStatus === 'success' ? 'success' : 'info'}
+            showIcon
+            message="QR Debug"
+            description={
+              <div>
+                <div><strong>QR detected:</strong> yes</div>
+                <div><strong>API base:</strong> {runtimeApiBase}</div>
+                <div><strong>Status:</strong> {qrDebugStatus}</div>
+                {qrDebugError ? <div><strong>Error:</strong> {qrDebugError}</div> : null}
+              </div>
+            }
+          />
+        ) : null}
 
         <Form
           form={form}
