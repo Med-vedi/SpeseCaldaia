@@ -2,7 +2,7 @@ const express = require('express')
 const router = express.Router()
 const { randomUUID } = require('crypto')
 const supabase = require('../lib/supabase')
-const { quickChartQrUrl } = require('../lib/qrAuth')
+const { createStaticQrToken, buildQrLoginUrl, quickChartQrUrl } = require('../lib/qrAuth')
 
 // Middleware to verify authentication
 const authenticate = async (req, res, next) => {
@@ -27,15 +27,10 @@ const authenticate = async (req, res, next) => {
 }
 
 function qrPayloadFromProfile(profile) {
-  const baseUrl = process.env.PROD_FRONTEND_URL
-  if (!baseUrl) {
-    throw new Error('Missing PROD_FRONTEND_URL')
-  }
-
-  const normalizedBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-  const loginUrl = `${normalizedBase}/login?u=${encodeURIComponent(profile.username)}`
+  const token = createStaticQrToken(profile.user_key)
+  const loginUrl = buildQrLoginUrl(token)
   return {
-    token: null,
+    token,
     loginUrl,
     qrImageUrl: quickChartQrUrl(loginUrl),
   }

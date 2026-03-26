@@ -1,8 +1,8 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Form, Input, Button, Card, Typography, App } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
-import { useLoginMutation } from '../store/api/authApi'
+import { useLoginMutation, useQrLoginMutation } from '../store/api/authApi'
 import { useAuth } from '../contexts/AuthContext'
 
 const { Title } = Typography
@@ -23,10 +23,12 @@ const capitalizeName = (value: string) =>
 const LoginPage = () => {
   const [form] = Form.useForm<LoginForm>()
   const [login, { isLoading }] = useLoginMutation()
+  const [qrLogin] = useQrLoginMutation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { message } = App.useApp()
   const { user, loading } = useAuth()
+  const qrLoginHandledRef = useRef(false)
   const prefilledUsername = searchParams.get('u') || searchParams.get('username') || ''
   const welcomeName = prefilledUsername ? capitalizeName(prefilledUsername) : ''
 
@@ -47,6 +49,32 @@ const LoginPage = () => {
       form.setFieldValue('username', prefilledUsername)
     }
   }, [prefilledUsername, form])
+
+  useEffect(() => {
+    const qrToken = searchParams.get('qr')
+    if (!qrToken || qrLoginHandledRef.current) {
+      return
+    }
+
+    qrLoginHandledRef.current = true
+
+    const runQrLogin = async () => {
+      try {
+        await qrLogin({ token: qrToken }).unwrap()
+        message.success('QR login successful!')
+        navigate('/main', { replace: true })
+      } catch (error) {
+        let errorMessage = 'QR login failed'
+        if (error && typeof error === 'object' && 'data' in error) {
+          const errorData = error.data as { error?: string }
+          errorMessage = errorData?.error || errorMessage
+        }
+        message.error(errorMessage)
+      }
+    }
+
+    runQrLogin()
+  }, [searchParams, qrLogin, navigate, message])
 
   // Show loading while checking authentication
   if (loading) {
@@ -123,7 +151,6 @@ const LoginPage = () => {
               prefix={<UserOutlined className="text-gray-400" />}
               placeholder="Username"
               className="rounded-lg"
-              disabled={!!prefilledUsername}
             />
           </Form.Item>
 
