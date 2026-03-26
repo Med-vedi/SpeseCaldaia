@@ -1,8 +1,8 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { Form, Input, Button, Card, Typography, App } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
-import { useLoginMutation, useQrLoginMutation } from '../store/api/authApi'
+import { useLoginMutation } from '../store/api/authApi'
 import { useAuth } from '../contexts/AuthContext'
 
 const { Title } = Typography
@@ -13,13 +13,13 @@ interface LoginForm {
 }
 
 const LoginPage = () => {
+  const [form] = Form.useForm<LoginForm>()
   const [login, { isLoading }] = useLoginMutation()
-  const [qrLogin] = useQrLoginMutation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { message } = App.useApp()
   const { user, loading } = useAuth()
-  const qrLoginHandledRef = useRef(false)
+  const prefilledUsername = searchParams.get('u') || searchParams.get('username') || ''
 
   // Redirect to main if already authenticated
   useEffect(() => {
@@ -34,30 +34,10 @@ const LoginPage = () => {
   }, [user, loading, navigate])
 
   useEffect(() => {
-    const qrToken = searchParams.get('qr')
-    if (!qrToken || qrLoginHandledRef.current) {
-      return
+    if (prefilledUsername) {
+      form.setFieldValue('username', prefilledUsername)
     }
-
-    qrLoginHandledRef.current = true
-
-    const runQrLogin = async () => {
-      try {
-        await qrLogin({ token: qrToken }).unwrap()
-        message.success('QR login successful!')
-        navigate('/main', { replace: true })
-      } catch (error) {
-        let errorMessage = 'QR login failed'
-        if (error && typeof error === 'object' && 'data' in error) {
-          const errorData = error.data as { error?: string }
-          errorMessage = errorData?.error || errorMessage
-        }
-        message.error(errorMessage)
-      }
-    }
-
-    runQrLogin()
-  }, [searchParams, qrLogin, navigate, message])
+  }, [prefilledUsername, form])
 
   // Show loading while checking authentication
   if (loading) {
@@ -119,10 +99,12 @@ const LoginPage = () => {
         </div>
 
         <Form
+          form={form}
           name="login"
           onFinish={onFinish}
           layout="vertical"
           size="large"
+          initialValues={{ username: prefilledUsername }}
         >
           <Form.Item
             name="username"
@@ -132,6 +114,7 @@ const LoginPage = () => {
               prefix={<UserOutlined className="text-gray-400" />}
               placeholder="Username"
               className="rounded-lg"
+              disabled={!!prefilledUsername}
             />
           </Form.Item>
 
