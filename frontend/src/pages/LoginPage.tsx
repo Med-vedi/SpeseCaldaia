@@ -12,6 +12,14 @@ interface LoginForm {
   password: string
 }
 
+const capitalizeName = (value: string) =>
+  value
+    .trim()
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ')
+
 const LoginPage = () => {
   const [form] = Form.useForm<LoginForm>()
   const [login, { isLoading }] = useLoginMutation()
@@ -20,6 +28,7 @@ const LoginPage = () => {
   const { message } = App.useApp()
   const { user, loading } = useAuth()
   const prefilledUsername = searchParams.get('u') || searchParams.get('username') || ''
+  const welcomeName = prefilledUsername ? capitalizeName(prefilledUsername) : ''
 
   // Redirect to main if already authenticated
   useEffect(() => {
@@ -91,7 +100,7 @@ const LoginPage = () => {
       >
         <div className="text-center mb-8">
           <Title level={2} className="text-gray-800 mb-2">
-            Welcome Back
+            {welcomeName ? `Welcome Back, ${welcomeName}` : 'Welcome Back'}
           </Title>
           <p className="text-gray-600">
             Please sign in to your account
