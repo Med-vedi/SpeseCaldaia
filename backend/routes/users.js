@@ -2,6 +2,11 @@ const express = require('express')
 const router = express.Router()
 const { randomUUID } = require('crypto')
 const supabase = require('../lib/supabase')
+const {
+  createStaticQrToken,
+  buildQrLoginUrl,
+  quickChartQrUrl,
+} = require('../lib/qrAuth')
 
 // Middleware to verify authentication
 const authenticate = async (req, res, next) => {
@@ -24,6 +29,140 @@ const authenticate = async (req, res, next) => {
     res.status(401).json({ error: 'Authentication failed' })
   }
 }
+
+function qrPayloadFromProfile(profile) {
+  const token = createStaticQrToken(profile.user_key)
+  const loginUrl = buildQrLoginUrl(token)
+  return {
+    token,
+    loginUrl,
+    qrImageUrl: quickChartQrUrl(loginUrl),
+  }
+}
+
+/**
+ * @route GET /api/users/me/profile
+ * @desc Get current user profile and QR login details
+ */
+router.get('/me/profile', authenticate, async (req, res) => {
+  try {
+    const { data: profile, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', req.user.id)
+      .single()
+
+    if (error || !profile) {
+      return res.status(404).json({ error: 'User profile not found' })
+    }
+
+    const qr = qrPayloadFromProfile(profile)
+    return res.json({ profile, qr })
+  } catch (error) {
+    console.error('Get my profile error:', error)
+    return res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * @route PUT /api/users/me/profile
+ * @desc Update current user profile + auth email/password
+ * @body { username?: string, email?: string, password?: string }
+ */
+router.put('/me/profile', authenticate, async (req, res) => {
+  try {
+    const { username, email, password } = req.body
+    const userId = req.user.id
+
+    const { data: existingUser, error: existingError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single()
+
+    if (existingError || !existingUser) {
+      return res.status(404).json({ error: 'User profile not found' })
+    }
+
+    if (username && username !== existingUser.username) {
+      const { data: usernameCheck } = await supabase
+        .from('users')
+        .select('id')
+        .eq('username', username)
+        .neq('id', userId)
+        .single()
+
+      if (usernameCheck) {
+        return res.status(409).json({ error: 'Username already exists' })
+      }
+    }
+
+    if (email || password) {
+      const { error: authUpdateError } = await supabase.auth.admin.updateUserById(userId, {
+        ...(email ? { email } : {}),
+        ...(password ? { password } : {}),
+      })
+
+      if (authUpdateError) {
+        return res.status(400).json({ error: authUpdateError.message })
+      }
+    }
+
+    const updates = {
+      ...(username ? { username } : {}),
+      ...(email ? { email } : {}),
+      updated_at: new Date().toISOString(),
+    }
+
+    const { data: updatedProfile, error: updateError } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', userId)
+      .select('*')
+      .single()
+
+    if (updateError || !updatedProfile) {
+      return res.status(500).json({ error: updateError?.message || 'Failed to update profile' })
+    }
+
+    const qr = qrPayloadFromProfile(updatedProfile)
+    return res.json({ profile: updatedProfile, qr })
+  } catch (error) {
+    console.error('Update my profile error:', error)
+    return res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * @route POST /api/users/me/qr/regenerate
+ * @desc Regenerate current user QR key
+ */
+router.post('/me/qr/regenerate', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id
+    const newUserKey = randomUUID()
+
+    const { data: updatedProfile, error } = await supabase
+      .from('users')
+      .update({
+        user_key: newUserKey,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId)
+      .select('*')
+      .single()
+
+    if (error || !updatedProfile) {
+      return res.status(500).json({ error: error?.message || 'Failed to regenerate QR code' })
+    }
+
+    const qr = qrPayloadFromProfile(updatedProfile)
+    return res.json({ profile: updatedProfile, qr })
+  } catch (error) {
+    console.error('Regenerate QR error:', error)
+    return res.status(500).json({ error: 'Internal server error' })
+  }
+})
 
 /**
  * @route GET /api/users

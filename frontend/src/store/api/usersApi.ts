@@ -3,10 +3,28 @@ import { apiSlice } from './apiSlice'
 export interface User {
   id: string
   username: string
+  email?: string
   organization_id: string
   role: 'admin' | 'guest' | 'basic'
   created_at: string
   updated_at: string
+}
+
+export interface UserQrData {
+  token: string
+  loginUrl: string
+  qrImageUrl: string
+}
+
+export interface MyProfileResponse {
+  profile: User
+  qr: UserQrData
+}
+
+export interface UpdateMyProfileRequest {
+  username?: string
+  email?: string
+  password?: string
 }
 
 export interface CreateUserRequest {
@@ -83,6 +101,34 @@ export const usersApi = apiSlice.injectEndpoints({
         { type: 'User', id: 'LIST' },
       ],
     }),
+    getMyProfile: builder.query<MyProfileResponse, void>({
+      query: () => '/users/me/profile',
+      providesTags: [{ type: 'User', id: 'ME' }],
+    }),
+    updateMyProfile: builder.mutation<MyProfileResponse, UpdateMyProfileRequest>({
+      query: (data) => ({
+        url: '/users/me/profile',
+        method: 'PUT',
+        body: data,
+      }),
+      async onQueryStarted(_arg, { queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled
+          localStorage.setItem('user_profile', JSON.stringify(data.profile))
+          window.dispatchEvent(new Event('auth-storage-changed'))
+        } catch (error) {
+          console.error('Update my profile failed:', error)
+        }
+      },
+      invalidatesTags: [{ type: 'User', id: 'ME' }, { type: 'User', id: 'LIST' }, 'Auth'],
+    }),
+    regenerateMyQr: builder.mutation<MyProfileResponse, void>({
+      query: () => ({
+        url: '/users/me/qr/regenerate',
+        method: 'POST',
+      }),
+      invalidatesTags: [{ type: 'User', id: 'ME' }],
+    }),
   }),
 })
 
@@ -92,5 +138,8 @@ export const {
   useCreateUserMutation,
   useUpdateUserMutation,
   useDeleteUserMutation,
+  useGetMyProfileQuery,
+  useUpdateMyProfileMutation,
+  useRegenerateMyQrMutation,
 } = usersApi
 

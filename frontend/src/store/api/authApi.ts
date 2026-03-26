@@ -4,6 +4,20 @@ import type { LoginRequest, LoginResponse, MeResponse } from './models'
 // Re-export types for convenience
 export type { LoginRequest, LoginResponse, UserProfile, MeResponse } from './models'
 
+function persistAuthSession(data: LoginResponse) {
+  if (data.session?.access_token) {
+    localStorage.setItem('auth_token', data.session.access_token)
+    localStorage.setItem('refresh_token', data.session.refresh_token || '')
+  }
+  if (data.user) {
+    localStorage.setItem('user', JSON.stringify(data.user))
+  }
+  if (data.profile) {
+    localStorage.setItem('user_profile', JSON.stringify(data.profile))
+  }
+  window.dispatchEvent(new Event('auth-storage-changed'))
+}
+
 export const authApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     login: builder.mutation<LoginResponse, LoginRequest>({
@@ -15,23 +29,26 @@ export const authApi = apiSlice.injectEndpoints({
       async onQueryStarted(_arg, { queryFulfilled }) {
         try {
           const { data } = await queryFulfilled
-          // Store token in localStorage
-          if (data.session?.access_token) {
-            localStorage.setItem('auth_token', data.session.access_token)
-            localStorage.setItem('refresh_token', data.session.refresh_token || '')
-          }
-          // Store user info
-          if (data.user) {
-            localStorage.setItem('user', JSON.stringify(data.user))
-          }
-          if (data.profile) {
-            localStorage.setItem('user_profile', JSON.stringify(data.profile))
-          }
-          // Dispatch custom event to notify AuthContext
-          window.dispatchEvent(new Event('auth-storage-changed'))
+          persistAuthSession(data)
         } catch (error) {
           // Handle error
           console.error('Login failed:', error)
+        }
+      },
+      invalidatesTags: ['Auth'],
+    }),
+    qrLogin: builder.mutation<LoginResponse, { token: string }>({
+      query: ({ token }) => ({
+        url: '/auth/qr-login',
+        method: 'POST',
+        body: { token },
+      }),
+      async onQueryStarted(_arg, { queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled
+          persistAuthSession(data)
+        } catch (error) {
+          console.error('QR login failed:', error)
         }
       },
       invalidatesTags: ['Auth'],
@@ -66,5 +83,5 @@ export const authApi = apiSlice.injectEndpoints({
   }),
 })
 
-export const { useLoginMutation, useLogoutMutation, useGetMeQuery } = authApi
+export const { useLoginMutation, useQrLoginMutation, useLogoutMutation, useGetMeQuery } = authApi
 

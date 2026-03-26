@@ -14,6 +14,9 @@ npm install
 SUPABASE_URL=your_supabase_url_here
 SUPABASE_ANON_KEY=your_supabase_anon_key_here
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+PROD_FRONTEND_URL=https://your-app.vercel.app
+QR_AUTH_SECRET=use_a_long_random_secret
+QR_AUTH_USERS=[{"key":"person-1","label":"Person 1","username":"person1","password":"person1-password"},{"key":"person-2","label":"Person 2","username":"person2","password":"person2-password"},{"key":"person-3","label":"Person 3","username":"person3","password":"person3-password"}]
 PORT=3001
 NODE_ENV=development
 ```
@@ -59,6 +62,16 @@ Login with username and password.
 
 #### POST `/api/auth/logout`
 Logout the current user. Requires Bearer token in Authorization header.
+
+#### POST `/api/auth/qr-login`
+Login with a signed QR token.
+
+**Request Body:**
+```json
+{
+  "token": "<signed_qr_token>"
+}
+```
 
 #### GET `/api/auth/me`
 Get current user profile. Requires Bearer token in Authorization header.
@@ -117,4 +130,16 @@ Authorization: Bearer <access_token>
 ```
 
 The access token is obtained from the login endpoint and should be stored client-side.
+
+## Generate the 3 QR codes
+
+Run:
+
+```bash
+npm run generate-qr-codes
+```
+
+This command outputs 3 objects (one per person) with:
+- `loginUrl`: URL that opens the production Vercel app (`/login?qr=...`) and auto-authenticates.
+- `qrImageUrl`: ready-to-use QR image URL you can print/share.
 

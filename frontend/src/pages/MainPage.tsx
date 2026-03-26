@@ -12,6 +12,7 @@ import {
   BarChartOutlined,
   HomeOutlined,
   BankOutlined,
+  QrcodeOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Routes, Route, useLocation } from 'react-router-dom'
@@ -22,6 +23,7 @@ import CalcoloPage from './CalcoloPage'
 import BonificoPage from './BonificoPage'
 import PrezziPage from './PrezziPage'
 import StatisticaPage from './StatisticaPage'
+import ProfilePage from './ProfilePage'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
@@ -88,6 +90,11 @@ const MainPage = () => {
       icon: <BarChartOutlined />,
       label: 'Statistica',
     },
+    {
+      key: '/main/profile',
+      icon: <QrcodeOutlined />,
+      label: 'Profilo & QR',
+    },
   ]
 
   const userMenuItems = [
@@ -95,6 +102,7 @@ const MainPage = () => {
       key: 'profile',
       label: 'Profile',
       icon: <UserOutlined />,
+      onClick: () => navigate('/main/profile'),
     },
     {
       type: 'divider' as const,
@@ -268,6 +276,7 @@ const MainPage = () => {
             <Route path="/bonifico" element={<BonificoPage />} />
             <Route path="/prezzi" element={<PrezziPage />} />
             <Route path="/statistica" element={<StatisticaPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
           </Routes>
         </Content>
       </Layout>
