@@ -137,25 +137,44 @@ router.post('/qr-login', async (req, res) => {
         return res.status(500).json({ error: 'Failed to generate QR login session' })
       }
 
-      const { data: otpData, error: otpError } = await supabaseAuth.auth.verifyOtp({
-        type: 'magiclink',
-        email,
-        token_hash: linkData.properties.hashed_token,
-      })
-
-      if (otpError || !otpData?.user || !otpData?.session) {
-        return res.status(401).json({ error: 'Failed to complete QR login' })
+      // Prefer action_link tokens for immediate server-side session creation.
+      const actionLink = linkData?.properties?.action_link
+      if (!actionLink) {
+        return res.status(500).json({ error: 'Failed to generate QR login action link' })
       }
+
+      const parsed = new URL(actionLink)
+      const accessToken = parsed.searchParams.get('access_token')
+      const refreshToken = parsed.searchParams.get('refresh_token')
+      const expiresInRaw = parsed.searchParams.get('expires_in')
+
+      if (!accessToken || !refreshToken) {
+        return res.status(500).json({ error: 'Failed to extract QR login tokens' })
+      }
+
+      const { data: userData, error: userError } = await supabase.auth.getUser(accessToken)
+      if (userError || !userData?.user) {
+        return res.status(401).json({ error: 'Failed to resolve user for QR login' })
+      }
+
+      const expiresIn = expiresInRaw ? Number(expiresInRaw) : null
+      const expiresAt = Number.isFinite(expiresIn) && expiresIn
+        ? Math.floor(Date.now() / 1000) + expiresIn
+        : undefined
 
       const { data: userProfile, error: profileError } = await supabase
         .from('users')
         .select('*')
-        .eq('id', otpData.user.id)
+        .eq('id', userData.user.id)
         .single()
 
       return res.json({
-        user: otpData.user,
-        session: otpData.session,
+        user: userData.user,
+        session: {
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          expires_at: expiresAt,
+        },
         profile: profileError ? null : userProfile,
       })
     }
