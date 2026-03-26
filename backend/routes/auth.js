@@ -155,28 +155,43 @@ router.post('/qr-login', async (req, res) => {
 
       // Prefer action_link tokens for immediate server-side session creation.
       const actionLink = linkData?.properties?.action_link
-      if (!actionLink) {
-        return res.status(500).json({ error: 'Failed to generate QR login action link' })
+      let accessToken = null
+      let refreshToken = null
+      let expiresAt
+
+      // Preferred path: use action_link tokens when present.
+      if (actionLink) {
+        const parsed = new URL(actionLink)
+        accessToken = parsed.searchParams.get('access_token')
+        refreshToken = parsed.searchParams.get('refresh_token')
+        const expiresInRaw = parsed.searchParams.get('expires_in')
+        const expiresIn = expiresInRaw ? Number(expiresInRaw) : null
+        expiresAt = Number.isFinite(expiresIn) && expiresIn
+          ? Math.floor(Date.now() / 1000) + expiresIn
+          : undefined
       }
 
-      const parsed = new URL(actionLink)
-      const accessToken = parsed.searchParams.get('access_token')
-      const refreshToken = parsed.searchParams.get('refresh_token')
-      const expiresInRaw = parsed.searchParams.get('expires_in')
-
+      // Fallback path: exchange hashed_token to a session (more reliable across providers).
       if (!accessToken || !refreshToken) {
-        return res.status(500).json({ error: 'Failed to extract QR login tokens' })
+        const { data: otpData, error: otpError } = await supabaseAuth.auth.verifyOtp({
+          type: 'magiclink',
+          email,
+          token_hash: linkData.properties.hashed_token,
+        })
+
+        if (otpError || !otpData?.session?.access_token || !otpData?.session?.refresh_token) {
+          return res.status(500).json({ error: 'Failed to create QR login session' })
+        }
+
+        accessToken = otpData.session.access_token
+        refreshToken = otpData.session.refresh_token
+        expiresAt = otpData.session.expires_at
       }
 
       const { data: userData, error: userError } = await supabase.auth.getUser(accessToken)
       if (userError || !userData?.user) {
         return res.status(401).json({ error: 'Failed to resolve user for QR login' })
       }
-
-      const expiresIn = expiresInRaw ? Number(expiresInRaw) : null
-      const expiresAt = Number.isFinite(expiresIn) && expiresIn
-        ? Math.floor(Date.now() / 1000) + expiresIn
-        : undefined
 
       const { data: userProfile, error: profileError } = await supabase
         .from('users')
