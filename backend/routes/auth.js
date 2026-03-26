@@ -33,12 +33,23 @@ async function authenticateWithCredentials(username, password) {
     // Prefer real email from users table when logging in with username.
     const { data: profileByUsername, error: profileLookupError } = await supabase
       .from('users')
-      .select('email')
+      .select('id, email')
       .eq('username', normalizedUsername)
       .single()
 
     if (!profileLookupError && profileByUsername?.email) {
       email = profileByUsername.email
+    } else if (!profileLookupError && profileByUsername?.id) {
+      // If email is missing/stale in profile table, resolve from auth user directly.
+      const { data: authUserData, error: authUserError } = await supabase.auth.admin.getUserById(
+        profileByUsername.id
+      )
+      if (!authUserError && authUserData?.user?.email) {
+        email = authUserData.user.email
+      } else {
+        // Backward compatibility for legacy accounts.
+        email = `${normalizedUsername}@app.local`
+      }
     } else {
       // Backward compatibility for legacy accounts.
       email = `${normalizedUsername}@app.local`

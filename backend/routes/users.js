@@ -203,6 +203,68 @@ router.post('/me/qr/regenerate', authenticate, async (req, res) => {
 })
 
 /**
+ * @route POST /api/users/:id/force-password
+ * @desc Admin-only: force reset password of another user in same organization
+ * @body { password: string }
+ */
+router.post('/:id/force-password', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params
+    const { password } = req.body
+
+    if (!password || String(password).length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' })
+    }
+
+    const { data: requesterProfile, error: requesterError } = await supabase
+      .from('users')
+      .select('id, role, organization_id')
+      .eq('id', req.user.id)
+      .single()
+
+    if (requesterError || !requesterProfile) {
+      return res.status(403).json({ error: 'Requester profile not found' })
+    }
+
+    if (requesterProfile.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can force update user passwords' })
+    }
+
+    const { data: targetProfile, error: targetError } = await supabase
+      .from('users')
+      .select('id, organization_id')
+      .eq('id', id)
+      .single()
+
+    if (targetError || !targetProfile) {
+      return res.status(404).json({ error: 'Target user not found' })
+    }
+
+    if (targetProfile.organization_id !== requesterProfile.organization_id) {
+      return res.status(403).json({ error: 'Cannot update users outside your organization' })
+    }
+
+    const { error: authUpdateError } = await supabase.auth.admin.updateUserById(id, {
+      password: String(password),
+    })
+
+    if (authUpdateError) {
+      return res.status(400).json({ error: authUpdateError.message })
+    }
+
+    await supabase
+      .from('users')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', id)
+
+    return res.json({ message: 'User password updated successfully' })
+  } catch (error) {
+    console.error('Force password update error:', error)
+    return res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
  * @route GET /api/users
  * @desc Get all users (with optional filters)
  * @query { organization_id?: string, role?: string }

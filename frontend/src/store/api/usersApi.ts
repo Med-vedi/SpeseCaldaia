@@ -55,6 +55,11 @@ export interface UpdateUserRequest {
   role?: 'admin' | 'guest' | 'basic'
 }
 
+export interface ForceUpdateUserPasswordRequest {
+  id: string
+  password: string
+}
+
 export interface GetUsersParams {
   organization_id?: string
   role?: string
@@ -99,6 +104,17 @@ export const usersApi = apiSlice.injectEndpoints({
         url: `/users/${id}`,
         method: 'PUT',
         body: data,
+      }),
+      invalidatesTags: (_result, _error, { id }) => [
+        { type: 'User', id },
+        { type: 'User', id: 'LIST' },
+      ],
+    }),
+    forceUpdateUserPassword: builder.mutation<{ message: string }, ForceUpdateUserPasswordRequest>({
+      query: ({ id, password }) => ({
+        url: `/users/${id}/force-password`,
+        method: 'POST',
+        body: { password },
       }),
       invalidatesTags: (_result, _error, { id }) => [
         { type: 'User', id },
@@ -155,6 +171,7 @@ export const {
   useGetUserByIdQuery,
   useCreateUserMutation,
   useUpdateUserMutation,
+  useForceUpdateUserPasswordMutation,
   useDeleteUserMutation,
   useGetMyProfileQuery,
   useUpdateMyProfileMutation,

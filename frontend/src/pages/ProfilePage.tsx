@@ -1,11 +1,13 @@
-import { useEffect } from 'react'
-import { Card, Form, Input, Button, Typography, Space, App, Spin, Row, Col, Divider, Alert, Collapse } from 'antd'
-import { CopyOutlined, ReloadOutlined, SaveOutlined, QrcodeOutlined, UserOutlined } from '@ant-design/icons'
+import { useEffect, useState } from 'react'
+import { Card, Form, Input, Button, Typography, Space, App, Spin, Row, Col, Divider, Alert, Collapse, Modal } from 'antd'
+import { CopyOutlined, ReloadOutlined, SaveOutlined, QrcodeOutlined, UserOutlined, LockOutlined } from '@ant-design/icons'
 import {
   useGetMyProfileQuery,
   useGetOrganizationQrCodesQuery,
   useUpdateMyProfileMutation,
   useRegenerateMyQrMutation,
+  useForceUpdateUserPasswordMutation,
+  type OrganizationQrUser,
 } from '../store/api/usersApi'
 
 const { Title, Text, Link } = Typography
@@ -19,10 +21,15 @@ interface ProfileFormValues {
 const ProfilePage = () => {
   const { message } = App.useApp()
   const [form] = Form.useForm<ProfileFormValues>()
+  const [forcePasswordForm] = Form.useForm<{ password: string; confirmPassword: string }>()
   const { data, isLoading, isError, error, refetch } = useGetMyProfileQuery()
   const { data: orgQrData, isLoading: isOrgQrLoading } = useGetOrganizationQrCodesQuery()
   const [updateMyProfile, { isLoading: isUpdating }] = useUpdateMyProfileMutation()
   const [regenerateMyQr, { isLoading: isRegenerating }] = useRegenerateMyQrMutation()
+  const [forceUpdateUserPassword, { isLoading: isForceUpdatingPassword }] = useForceUpdateUserPasswordMutation()
+  const [forcePasswordOpen, setForcePasswordOpen] = useState(false)
+  const [targetUserForForcePassword, setTargetUserForForcePassword] = useState<OrganizationQrUser | null>(null)
+  const isAdmin = data?.profile?.role === 'admin'
 
   useEffect(() => {
     if (!data?.profile) return
@@ -83,6 +90,39 @@ const ProfilePage = () => {
       message.success('Login link copied')
     } catch {
       message.error('Could not copy link')
+    }
+  }
+
+  const openForcePasswordModal = (orgUser: OrganizationQrUser) => {
+    setTargetUserForForcePassword(orgUser)
+    forcePasswordForm.resetFields()
+    setForcePasswordOpen(true)
+  }
+
+  const closeForcePasswordModal = () => {
+    setForcePasswordOpen(false)
+    setTargetUserForForcePassword(null)
+    forcePasswordForm.resetFields()
+  }
+
+  const handleForcePasswordSubmit = async () => {
+    if (!targetUserForForcePassword) return
+    try {
+      const values = await forcePasswordForm.validateFields()
+      await forceUpdateUserPassword({
+        id: targetUserForForcePassword.id,
+        password: values.password,
+      }).unwrap()
+      message.success(`Password updated for ${targetUserForForcePassword.username}`)
+      closeForcePasswordModal()
+    } catch (error) {
+      if (error && typeof error === 'object' && 'errorFields' in error) return
+      let errorMessage = 'Failed to update user password'
+      if (error && typeof error === 'object' && 'data' in error) {
+        const errorData = error.data as { error?: string }
+        errorMessage = errorData?.error || errorMessage
+      }
+      message.error(errorMessage)
     }
   }
 
@@ -255,6 +295,14 @@ const ProfilePage = () => {
                                   >
                                     Copy link
                                   </Button>
+                                  {isAdmin && (
+                                    <Button
+                                      icon={<LockOutlined />}
+                                      onClick={() => openForcePasswordModal(orgUser)}
+                                    >
+                                      Force update password
+                                    </Button>
+                                  )}
                                 </Space>
                               </Card>
                             </Col>
@@ -268,6 +316,54 @@ const ProfilePage = () => {
           />
         </Card>
       </Space>
+      <Modal
+        title={`Force update password${targetUserForForcePassword ? ` — ${targetUserForForcePassword.username}` : ''}`}
+        open={forcePasswordOpen}
+        onCancel={closeForcePasswordModal}
+        okText="Update password"
+        cancelText="Cancel"
+        confirmLoading={isForceUpdatingPassword}
+        onOk={() => void handleForcePasswordSubmit()}
+        afterOpenChange={(open) => {
+          // Defensive cleanup for occasional stale mask/scroll-lock states.
+          if (!open) {
+            document.body.classList.remove('ant-scrolling-effect')
+            document.body.style.removeProperty('width')
+          }
+        }}
+        destroyOnHidden
+      >
+        <Form form={forcePasswordForm} layout="vertical">
+          <Form.Item
+            label="New password"
+            name="password"
+            rules={[
+              { required: true, message: 'Please enter a password' },
+              { min: 6, message: 'Password must be at least 6 characters' },
+            ]}
+          >
+            <Input.Password placeholder="Enter new password" />
+          </Form.Item>
+          <Form.Item
+            label="Confirm password"
+            name="confirmPassword"
+            dependencies={['password']}
+            rules={[
+              { required: true, message: 'Please confirm password' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('password') === value) {
+                    return Promise.resolve()
+                  }
+                  return Promise.reject(new Error('Passwords do not match'))
+                },
+              }),
+            ]}
+          >
+            <Input.Password placeholder="Confirm password" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }
