@@ -271,7 +271,7 @@ const ContattoriPage = () => {
       m3Columns: build('M³', 0),
       kWColumns: build('kW', 1),
     }
-  }, [yearsAsc, getDisplayValue, handleInputBlur, compactMeterNames])
+  }, [yearsAsc, getDisplayValue, handleInputBlur, compactMeterNames, nameColWidth])
 
   const tableScrollX = Math.min(nameColWidth + yearsAsc.length * 128 + 130, 4000)
 

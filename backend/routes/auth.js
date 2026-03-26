@@ -26,8 +26,24 @@ const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey)
 const supabase = require('../lib/supabase')
 
 async function authenticateWithCredentials(username, password) {
-  // Check if username is already an email, otherwise convert to email format
-  const email = username.includes('@') ? username : `${username}@app.local`
+  const normalizedUsername = String(username || '').trim()
+  let email = normalizedUsername
+
+  if (!normalizedUsername.includes('@')) {
+    // Prefer real email from users table when logging in with username.
+    const { data: profileByUsername, error: profileLookupError } = await supabase
+      .from('users')
+      .select('email')
+      .eq('username', normalizedUsername)
+      .single()
+
+    if (!profileLookupError && profileByUsername?.email) {
+      email = profileByUsername.email
+    } else {
+      // Backward compatibility for legacy accounts.
+      email = `${normalizedUsername}@app.local`
+    }
+  }
 
   // Authenticate with Supabase using anon key (required for signInWithPassword)
   const { data: authData, error: authError } = await supabaseAuth.auth.signInWithPassword({
