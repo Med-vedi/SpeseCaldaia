@@ -25,6 +25,27 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+function clearAuthStorage() {
+  localStorage.removeItem('auth_token')
+  localStorage.removeItem('refresh_token')
+  localStorage.removeItem('user')
+  localStorage.removeItem('user_profile')
+  window.dispatchEvent(new Event('auth-storage-changed'))
+}
+
+function getJwtExpMs(token: string | null): number | null {
+  if (!token) return null
+  try {
+    const parts = token.split('.')
+    if (parts.length < 2) return null
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (!payload || typeof payload.exp !== 'number') return null
+    return payload.exp * 1000
+  } catch {
+    return null
+  }
+}
+
 export const useAuth = () => {
   const context = useContext(AuthContext)
   if (context === undefined) {
@@ -68,6 +89,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     skip: !token,
   })
   const [logout] = useLogoutMutation()
+
+  // If token is expired, clear auth state immediately.
+  useEffect(() => {
+    const expMs = getJwtExpMs(token)
+    if (expMs == null) return
+    if (Date.now() >= expMs) {
+      clearAuthStorage()
+      setToken(null)
+      setUser(null)
+      setSession(null)
+      setProfile(null)
+      return
+    }
+    const timeoutMs = Math.max(0, expMs - Date.now())
+    const timer = window.setTimeout(() => {
+      clearAuthStorage()
+      setToken(null)
+      setUser(null)
+      setSession(null)
+      setProfile(null)
+    }, timeoutMs)
+    return () => window.clearTimeout(timer)
+  }, [token])
 
   // Watch for localStorage changes (e.g., after login)
   useEffect(() => {
@@ -143,21 +187,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('user', JSON.stringify(meData.user))
       }
     } else if (meError) {
-      // Only clear if we don't have localStorage data (token might be expired)
-      // If we have localStorage data, keep it and let the user continue
-      const storedUser = localStorage.getItem('user')
-
-      // Only clear if token is truly invalid (401) and we have no stored user
-      if (meError && 'status' in meError && meError.status === 401 && !storedUser) {
+      // If backend says token is invalid/expired, always force logout.
+      if (meError && 'status' in meError && meError.status === 401) {
         setUser(null)
         setSession(null)
         setProfile(null)
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('refresh_token')
-        localStorage.removeItem('user')
-        localStorage.removeItem('user_profile')
+        setToken(null)
+        clearAuthStorage()
       }
-      // For 404 or other errors, keep the existing user from localStorage
+      // For non-401 errors, keep existing local user/profile.
     }
   }, [meData, meError])
 
@@ -170,6 +208,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null)
       setSession(null)
       setProfile(null)
+      setToken(null)
+      clearAuthStorage()
     }
   }
 
