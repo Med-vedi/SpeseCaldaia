@@ -190,7 +190,7 @@ const PrintReportPage = () => {
         </div>
       </div>
 
-      <Card title="CALCOLO SPESE INDIVIDUALI ACQUA CALDA">
+      <Card className="mobile-card-title-compact" title="CALCOLO SPESE INDIVIDUALI ACQUA CALDA">
         <Table
           columns={hotWaterColumns}
           dataSource={hotWaterData}
@@ -208,13 +208,13 @@ const PrintReportPage = () => {
           )}
         />
       </Card>
-      <Card title="CALCOLO COSTO kCal (RISCALDAMENTO)">
+      <Card className="mobile-card-title-compact" title="CALCOLO COSTO kCal (RISCALDAMENTO)">
         <Table columns={kCalCostColumns} dataSource={kCalCostData} pagination={false} bordered size="small" rowKey="key" />
       </Card>
-      <Card title="CALCOLO INDIVIDUALE SPESE RISCALDAMENTO">
+      <Card className="mobile-card-title-compact" title="CALCOLO INDIVIDUALE SPESE RISCALDAMENTO">
         <Table columns={heatingColumns} dataSource={heatingData} pagination={false} bordered size="small" rowKey="key" />
       </Card>
-      <Card title="DA DARE A DINO (CONTANTI)">
+      <Card className="mobile-card-title-compact" title="DA DARE A DINO (CONTANTI)">
         <Table<PayToMasterRow>
           columns={payToMasterColumns}
           dataSource={payToMasterData}
@@ -232,6 +232,7 @@ const PrintReportPage = () => {
         />
       </Card>
       <Card
+        className="mobile-card-title-compact"
         title={
           <span>
             CALCOLO IMPORTI TOTALI (BONIFICO){' '}

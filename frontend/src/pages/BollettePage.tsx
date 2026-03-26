@@ -270,7 +270,7 @@ const BollettePage = () => {
             </Button>
           </div>
         }
-        className="mb-5 shadow-sm border-zinc-200/80"
+        className="mobile-card-title-compact mb-5 shadow-sm border-zinc-200/80"
         loading={isFetching && !yearly}
       >
         {yearly && (

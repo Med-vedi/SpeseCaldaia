@@ -113,7 +113,7 @@ const ProfilePage = () => {
 
         <Row gutter={[16, 16]}>
           <Col xs={24} lg={14}>
-            <Card title={<Space><UserOutlined /> Account Information</Space>}>
+            <Card className="mobile-card-title-compact" title={<Space><UserOutlined /> Account Information</Space>}>
           <Form
             form={form}
             layout="vertical"
@@ -157,7 +157,7 @@ const ProfilePage = () => {
           </Col>
 
           <Col xs={24} lg={10}>
-            <Card title={<Space><QrcodeOutlined /> QR Auto Login</Space>}>
+            <Card className="mobile-card-title-compact" title={<Space><QrcodeOutlined /> QR Auto Login</Space>}>
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 <Text type="secondary">
                   Share this QR code with your phone to login quickly. It remains the same until you regenerate it.

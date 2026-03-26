@@ -12,6 +12,21 @@
     margin-bottom: 16px;
   }
 
+  /* Compact title paddings for cards that opt in */
+  .mobile-card-title-compact > .ant-card-head {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+
+  .mobile-card-title-compact > .ant-card-head .ant-card-head-title {
+    padding: 10px 0;
+    line-height: 1.35;
+  }
+
+  .mobile-card-title-compact > .ant-card-body {
+    padding: 12px;
+  }
+
   /* Improve table readability on mobile */
   .ant-table {
     font-size: 14px;

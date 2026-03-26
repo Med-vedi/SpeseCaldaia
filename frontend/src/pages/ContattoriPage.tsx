@@ -397,6 +397,7 @@ const ContattoriPage = () => {
 
       <div ref={meterTablesRef} className="flex flex-col gap-4 md:gap-6">
         <Card
+          className="mobile-card-title-compact"
           title={
             <span className="text-sm md:text-base">
               <FireOutlined style={{ marginRight: 8, color: '#ff4d4f' }} />
@@ -421,6 +422,7 @@ const ContattoriPage = () => {
         </Card>
 
         <Card
+          className="mobile-card-title-compact"
           title={
             <span className="text-sm md:text-base">
               <DropboxOutlined style={{ marginRight: 8, color: '#1890ff' }} />
@@ -445,6 +447,7 @@ const ContattoriPage = () => {
         </Card>
 
         <Card
+          className="mobile-card-title-compact"
           title={
             <span className="text-sm md:text-base">
               <ThunderboltOutlined style={{ marginRight: 8, color: '#faad14' }} />
