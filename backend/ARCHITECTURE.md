@@ -23,6 +23,9 @@ Supabase uses a two-table system for user management:
   - `username`
   - `organization_id`
   - `role` (admin, guest, basic)
+  - `email` (copied/kept in sync for app queries)
+  - `user_key` (stable UUID used for QR login)
+  - `type` (currently defaulted to `user`)
   - `created_at`, `updated_at`
 
 ## How It Works
@@ -41,20 +44,30 @@ Supabase uses a two-table system for user management:
    - Returns the user ID
 
 2. **Create Profile** (in `public.users`):
+   - A DB trigger (`on_auth_user_created`) can auto-create a default profile row.
+   - API routes may also create/update profile fields explicitly after auth user creation.
+   - In environments where both are enabled, prefer update/upsert semantics to avoid duplicate-key inserts.
    ```javascript
    await supabase
      .from('users')
-     .insert({
+     .upsert({
        id: authUser.id,  // Link to auth.users
        username: 'username',
        organization_id: 'org-1',
-       role: 'basic'
+       role: 'basic',
+       email: 'user@example.com',
+       user_key: crypto.randomUUID(),
+       type: 'user'
      })
    ```
 
 ### Login Flow
 
-1. **Authenticate** (against `auth.users`):
+1. **Resolve credential identifier**:
+   - Backend login accepts a username-like identifier.
+   - If input is not an email, app resolves `users.username -> users.email` (or fetches from `auth.users` as fallback).
+
+2. **Authenticate** (against `auth.users`):
    ```javascript
    await supabase.auth.signInWithPassword({
      email: 'user@example.com',
@@ -64,7 +77,7 @@ Supabase uses a two-table system for user management:
    - Supabase validates credentials against `auth.users`
    - Returns session token and user ID
 
-2. **Fetch Profile** (from `public.users`):
+3. **Fetch Profile** (from `public.users`):
    ```javascript
    await supabase
      .from('users')
@@ -86,4 +99,5 @@ Supabase uses a two-table system for user management:
 - **Always use Supabase Auth APIs** to create/authenticate users
 - **The foreign key** (`id` references `auth.users.id`) ensures data integrity
 - **CASCADE DELETE**: If an auth user is deleted, the profile is automatically deleted
+- **QR login** relies on `public.users.user_key` and then creates a Supabase magic-link session for that user
 
