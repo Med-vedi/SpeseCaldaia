@@ -172,7 +172,28 @@ const PrintReportPage = () => {
 
   return (
     <div className="p-4 md:p-6 flex flex-col gap-4">
-      <style>{`@media print {.print-hide{display:none!important;} body{background:#fff!important;}}`}</style>
+      <style>{`
+        @media print {
+          /* Hide in-page controls */
+          .print-hide { display: none !important; }
+
+          /* Prevent the app layout (100vh + overflow hidden) from clipping content */
+          html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+          .ant-layout { height: auto !important; min-height: auto !important; overflow: visible !important; }
+          .ant-layout-content { height: auto !important; overflow: visible !important; }
+
+          /* Avoid printing side UI; keep the report focused */
+          .ant-layout-header { display: none !important; }
+          .ant-layout-sider { display: none !important; }
+
+          /* Reduce awkward page splits for cards/tables */
+          .ant-card { break-inside: avoid; page-break-inside: avoid; }
+          table { break-inside: auto; }
+
+          /* Ensure horizontal overflow containers don't clip tables */
+          .overflow-x-auto { overflow-x: visible !important; }
+        }
+      `}</style>
       <div className="print-hide flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <Title level={2} className="mb-0!" style={{ fontSize: '24px' }}>Report calcoli</Title>
         <div className="flex gap-2">

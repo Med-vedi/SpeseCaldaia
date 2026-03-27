@@ -161,7 +161,29 @@ const BonificoPage = () => {
 
   return (
     <div className="p-4 md:p-6 flex flex-col gap-4">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-2 md:mb-4">
+      <style>{`
+        @media print {
+          /* Hide in-page controls */
+          .print-hide { display: none !important; }
+
+          /* Prevent the app layout (100vh + overflow hidden) from clipping content */
+          html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+          .ant-layout { height: auto !important; min-height: auto !important; overflow: visible !important; }
+          .ant-layout-content { height: auto !important; overflow: visible !important; }
+
+          /* Avoid printing side UI; keep the report focused */
+          .ant-layout-header { display: none !important; }
+          .ant-layout-sider { display: none !important; }
+
+          /* Reduce awkward page splits for cards/tables */
+          .ant-card { break-inside: avoid; page-break-inside: avoid; }
+          table { break-inside: auto; }
+
+          /* Ensure horizontal overflow containers don't clip tables */
+          .overflow-x-auto { overflow-x: visible !important; }
+        }
+      `}</style>
+      <div className="print-hide flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-2 md:mb-4">
         <Title level={2} className="mb-0!" style={{ fontSize: '24px' }}>
           Calcolo importi totali (bonifico)
         </Title>
@@ -182,7 +204,7 @@ const BonificoPage = () => {
         </div>
       </div>
       {eligibleYears.length > 0 && (
-        <Text type="secondary" className="text-xs md:text-sm -mt-2 mb-2 block">
+        <Text type="secondary" className="print-hide text-xs md:text-sm -mt-2 mb-2 block">
           Stessi importi della sezione bonifico in Calcolo: differenza {yearForCalc - 1} → {yearForCalc}, una riga per
           ogni utente.
         </Text>
