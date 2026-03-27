@@ -25,6 +25,17 @@ const authenticate = async (req, res, next) => {
   }
 }
 
+async function userBelongsToOrganization(userId, organizationId) {
+  if (!userId || !organizationId) return false
+  const { data, error } = await supabase
+    .from('users')
+    .select('id')
+    .eq('id', userId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+  return !error && !!data
+}
+
 /**
  * @route GET /api/counters
  * @desc Get all counters by organization_id
@@ -110,6 +121,22 @@ router.post('/', authenticate, async (req, res) => {
       })
     }
 
+    // Non-common counters must always belong to a specific user.
+    if (counter_type !== 'electric_common' && !user_id) {
+      return res.status(400).json({
+        error: 'user_id is required for non-electric_common counters'
+      })
+    }
+
+    if (counter_type !== 'electric_common') {
+      const belongs = await userBelongsToOrganization(user_id, organization_id)
+      if (!belongs) {
+        return res.status(400).json({
+          error: 'user_id must belong to the provided organization_id'
+        })
+      }
+    }
+
     const { data, error } = await supabase
       .from('counters')
       .insert({
@@ -165,6 +192,21 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(400).json({
         error: 'electric_common counter type cannot have user_id'
       })
+    }
+
+    if (finalCounterType !== 'electric_common') {
+      const finalUserId = user_id !== undefined ? user_id : existingCounter.user_id
+      if (!finalUserId) {
+        return res.status(400).json({
+          error: 'user_id is required for non-electric_common counters'
+        })
+      }
+      const belongs = await userBelongsToOrganization(finalUserId, existingCounter.organization_id)
+      if (!belongs) {
+        return res.status(400).json({
+          error: 'user_id must belong to the counter organization'
+        })
+      }
     }
 
     // Build update object
