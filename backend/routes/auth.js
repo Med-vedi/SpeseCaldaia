@@ -33,10 +33,11 @@ async function authenticateWithCredentials(username, password) {
     // Allow direct email login as a convenience.
     email = normalizedUsername
   } else {
-    // Real username login: resolve users.username -> auth email.
+    // Real username login: resolve users.username -> auth.users email.
+    // We intentionally do not trust public.users.email because it can be stale.
     const { data: profileByUsername, error: profileLookupError } = await supabase
       .from('users')
-      .select('id, email')
+      .select('id')
       .ilike('username', normalizedUsername)
       .maybeSingle()
 
@@ -47,21 +48,16 @@ async function authenticateWithCredentials(username, password) {
       }
     }
 
-    if (profileByUsername.email) {
-      email = profileByUsername.email
-    } else {
-      // If email is missing in public.users, resolve from auth user.
-      const { data: authUserData, error: authUserError } = await supabase.auth.admin.getUserById(
-        profileByUsername.id
-      )
-      if (authUserError || !authUserData?.user?.email) {
-        return {
-          error: 'Invalid username or password',
-          status: 401,
-        }
+    const { data: authUserData, error: authUserError } = await supabase.auth.admin.getUserById(
+      profileByUsername.id
+    )
+    if (authUserError || !authUserData?.user?.email) {
+      return {
+        error: 'Invalid username or password',
+        status: 401,
       }
-      email = authUserData.user.email
     }
+    email = authUserData.user.email
   }
 
   // Authenticate with Supabase using anon key (required for signInWithPassword)
