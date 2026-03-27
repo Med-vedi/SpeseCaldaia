@@ -27,32 +27,40 @@ const supabase = require('../lib/supabase')
 
 async function authenticateWithCredentials(username, password) {
   const normalizedUsername = String(username || '').trim()
-  let email = normalizedUsername
+  let email
 
-  if (!normalizedUsername.includes('@')) {
-    // Prefer real email from users table when logging in with username.
+  if (normalizedUsername.includes('@')) {
+    // Allow direct email login as a convenience.
+    email = normalizedUsername
+  } else {
+    // Real username login: resolve users.username -> auth email.
     const { data: profileByUsername, error: profileLookupError } = await supabase
       .from('users')
       .select('id, email')
-      .eq('username', normalizedUsername)
-      .single()
+      .ilike('username', normalizedUsername)
+      .maybeSingle()
 
-    if (!profileLookupError && profileByUsername?.email) {
+    if (profileLookupError || !profileByUsername?.id) {
+      return {
+        error: 'Invalid username or password',
+        status: 401,
+      }
+    }
+
+    if (profileByUsername.email) {
       email = profileByUsername.email
-    } else if (!profileLookupError && profileByUsername?.id) {
-      // If email is missing/stale in profile table, resolve from auth user directly.
+    } else {
+      // If email is missing in public.users, resolve from auth user.
       const { data: authUserData, error: authUserError } = await supabase.auth.admin.getUserById(
         profileByUsername.id
       )
-      if (!authUserError && authUserData?.user?.email) {
-        email = authUserData.user.email
-      } else {
-        // Backward compatibility for legacy accounts.
-        email = `${normalizedUsername}@app.local`
+      if (authUserError || !authUserData?.user?.email) {
+        return {
+          error: 'Invalid username or password',
+          status: 401,
+        }
       }
-    } else {
-      // Backward compatibility for legacy accounts.
-      email = `${normalizedUsername}@app.local`
+      email = authUserData.user.email
     }
   }
 

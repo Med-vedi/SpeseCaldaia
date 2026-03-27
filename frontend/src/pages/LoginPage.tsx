@@ -139,7 +139,7 @@ const LoginPage = () => {
             {welcomeName ? `Welcome Back, ${welcomeName}` : 'Welcome Back'}
           </Title>
           <p className="text-gray-600">
-            Please sign in to your account
+            Sign in with your username and password
           </p>
         </div>
 
@@ -174,7 +174,7 @@ const LoginPage = () => {
           >
             <Input
               prefix={<UserOutlined className="text-gray-400" />}
-              placeholder="Username"
+              placeholder="Username (or email)"
               className="rounded-lg"
             />
           </Form.Item>
