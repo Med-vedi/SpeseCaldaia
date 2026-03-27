@@ -18,6 +18,14 @@ interface ProfileFormValues {
   password?: string
 }
 
+const formatDisplayName = (value: string) =>
+  value
+    .trim()
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ')
+
 const ProfilePage = () => {
   const { message } = App.useApp()
   const [form] = Form.useForm<ProfileFormValues>()
@@ -113,7 +121,7 @@ const ProfilePage = () => {
         id: targetUserForForcePassword.id,
         password: values.password,
       }).unwrap()
-      message.success(`Password updated for ${targetUserForForcePassword.username}`)
+      message.success(`Password updated for ${formatDisplayName(targetUserForForcePassword.username)}`)
       closeForcePasswordModal()
     } catch (error) {
       if (error && typeof error === 'object' && 'errorFields' in error) return
@@ -270,14 +278,14 @@ const ProfilePage = () => {
                             <Col xs={24} md={12} lg={8} key={orgUser.id}>
                               <Card
                                 size="small"
-                                title={orgUser.username}
+                                title={formatDisplayName(orgUser.username)}
                                 extra={<Text type="secondary">{orgUser.role}</Text>}
                               >
                                 <Space direction="vertical" size="small" style={{ width: '100%' }}>
                                   <div style={{ display: 'flex', justifyContent: 'center' }}>
                                     <img
                                       src={orgUser.qr.qrImageUrl}
-                                      alt={`QR for ${orgUser.username}`}
+                                      alt={`QR for ${formatDisplayName(orgUser.username)}`}
                                       style={{
                                         width: 160,
                                         height: 160,
@@ -317,7 +325,7 @@ const ProfilePage = () => {
         </Card>
       </Space>
       <Modal
-        title={`Force update password${targetUserForForcePassword ? ` — ${targetUserForForcePassword.username}` : ''}`}
+        title={`Force update password${targetUserForForcePassword ? ` — ${formatDisplayName(targetUserForForcePassword.username)}` : ''}`}
         open={forcePasswordOpen}
         onCancel={closeForcePasswordModal}
         okText="Update password"

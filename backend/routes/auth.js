@@ -184,17 +184,31 @@ router.post('/qr-login', async (req, res) => {
         expiresAt = Number.isFinite(expiresIn) && expiresIn
           ? Math.floor(Date.now() / 1000) + expiresIn
           : undefined
+
+        // Some Supabase links carry tokens in URL hash fragment instead of query params.
+        if ((!accessToken || !refreshToken) && parsed.hash) {
+          const hashParams = new URLSearchParams(parsed.hash.startsWith('#') ? parsed.hash.slice(1) : parsed.hash)
+          accessToken = hashParams.get('access_token')
+          refreshToken = hashParams.get('refresh_token')
+          const hashExpiresInRaw = hashParams.get('expires_in')
+          const hashExpiresIn = hashExpiresInRaw ? Number(hashExpiresInRaw) : null
+          expiresAt = Number.isFinite(hashExpiresIn) && hashExpiresIn
+            ? Math.floor(Date.now() / 1000) + hashExpiresIn
+            : expiresAt
+        }
       }
 
       // Fallback path: exchange hashed_token to a session (more reliable across providers).
       if (!accessToken || !refreshToken) {
         const { data: otpData, error: otpError } = await supabaseAuth.auth.verifyOtp({
           type: 'magiclink',
-          email,
           token_hash: linkData.properties.hashed_token,
         })
 
         if (otpError || !otpData?.session?.access_token || !otpData?.session?.refresh_token) {
+          if (otpError) {
+            console.error('QR verifyOtp failed:', otpError.message)
+          }
           return res.status(500).json({ error: 'Failed to create QR login session' })
         }
 

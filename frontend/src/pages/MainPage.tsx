@@ -31,11 +31,21 @@ import PrintReportPage from './PrintReportPage'
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
 
+function formatDisplayName(value?: string | null) {
+  if (!value) return 'User'
+  return value
+    .trim()
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ')
+}
+
 const MainPage = () => {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
-  const { user, signOut } = useAuth()
+  const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -129,6 +139,8 @@ const MainPage = () => {
       setMobileDrawerOpen(false)
     }
   }
+
+  const welcomeName = formatDisplayName(profile?.username || user?.email?.split('@')[0])
 
   const menuContent = (
     <>
@@ -255,7 +267,7 @@ const MainPage = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '16px' }}>
             {!isMobile && (
               <Text style={{ color: '#fff' }}>
-                Welcome, {user?.email ? user.email.split('@')[0] : 'User'}
+                Welcome, {welcomeName}
               </Text>
             )}
             <Dropdown menu={{ items: userMenuItems }} trigger={['click']}>
