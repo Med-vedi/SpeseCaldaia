@@ -41,6 +41,20 @@ interface PayToMasterRow {
   payToMaster: number
 }
 
+interface ExpenseRow {
+  key: string
+  name: string
+  importo: number
+  isTotal?: boolean
+}
+
+interface UnitPriceRow {
+  key: string
+  name: string
+  price: number
+  suffix: string
+}
+
 const PrintReportPage = () => {
   const { profile } = useAuth()
   const { kCalData, m3Data, kWData } = useReadings()
@@ -69,6 +83,99 @@ const PrintReportPage = () => {
     }),
     [yearlyForCalc, prices.gasolio]
   )
+
+  const unitPriceData = useMemo<UnitPriceRow[]>(
+    () => [
+      { key: 'gasolio', name: 'Gasolio', price: prices.gasolio, suffix: '€/litro' },
+      { key: 'acqua', name: 'Acqua', price: prices.acqua, suffix: '€/m³' },
+      { key: 'corrente', name: 'Elettricita comune', price: prices.corrente, suffix: '€/kWh' },
+    ],
+    [prices]
+  )
+
+  const gasolioBillsData = useMemo(
+    () =>
+      (yearlyForCalc?.gasoil_deliveries || []).map((row) => ({
+        key: row.id,
+        label: row.label || '-',
+        liters: Number(row.liters || 0),
+        amount_eur: Number(row.amount_eur || 0),
+        bill_date: row.bill_date || '-',
+      })),
+    [yearlyForCalc]
+  )
+
+  const allYearsAsc = useMemo(() => {
+    const years = new Set<number>()
+    ;[...kCalData, ...m3Data, ...kWData].forEach((row) => {
+      Object.keys(row.yearValues || {}).forEach((y) => {
+        const n = Number(y)
+        if (Number.isFinite(n)) years.add(n)
+      })
+    })
+    return Array.from(years).sort((a, b) => a - b)
+  }, [kCalData, m3Data, kWData])
+
+  const buildMeterColumns = (unitLabel: string) => {
+    const baseCols: ColumnsType<{
+      key: string
+      name: string
+      yearValues: Record<number, number | null | undefined>
+      differenza?: number | null
+    }> = [{ title: 'Nome', dataIndex: 'name', key: 'name', width: 140 }]
+
+    const yearCols: ColumnsType<{
+      key: string
+      name: string
+      yearValues: Record<number, number | null | undefined>
+      differenza?: number | null
+    }> = allYearsAsc.map((year) => ({
+      title: `${year} (${unitLabel})`,
+      key: `year-${year}`,
+      render: (_, record) => {
+        const v = record.yearValues?.[year]
+        return typeof v === 'number' ? v.toFixed(unitLabel === 'M³' ? 0 : 1) : '—'
+      },
+    }))
+
+    return [
+      ...baseCols,
+      ...yearCols,
+      {
+        title: `Differenza ${yearForCalc - 1} -> ${yearForCalc}`,
+        key: 'differenza',
+        render: (_: unknown, record: { differenza?: number | null }) =>
+          typeof record.differenza === 'number' ? record.differenza.toFixed(unitLabel === 'M³' ? 0 : 1) : '—',
+      },
+    ] as ColumnsType<{
+      key: string
+      name: string
+      yearValues: Record<number, number | null | undefined>
+      differenza?: number | null
+    }>
+  }
+
+  const expenseData = useMemo<ExpenseRow[]>(() => {
+    const totaleM3Row = m3Data.find((r) => r.key === 'totale')
+    const m3Diff = yearOverYearDelta(totaleM3Row?.yearValues, yearForCalc)
+    const acquaFredda = m3Diff * prices.acqua
+
+    const sharedKwRow = kWData.find((r) => r.counterType === 'electric_common')
+    const kWDiff = yearOverYearDelta(sharedKwRow?.yearValues, yearForCalc)
+    const corrente = kWDiff * prices.corrente
+
+    const funzionamentoServizio = expenses.fatturaGasolio * (expenses.funzionamentoServizioPct / 100)
+    const totale = expenses.manutenzione + corrente + acquaFredda + funzionamentoServizio
+
+    return [
+      { key: 'gasolio', name: 'Gasolio (tot. bollette)', importo: expenses.fatturaGasolio },
+      { key: 'manutenzione', name: 'Manutenzione', importo: expenses.manutenzione },
+      { key: 'corrente', name: 'Corrente', importo: corrente },
+      { key: 'acquaFredda', name: 'Acqua fredda', importo: acquaFredda },
+      { key: 'funzionamentoServizio', name: 'Funzionamento servizio caldaia', importo: funzionamentoServizio },
+      { key: 'totale', name: 'Totale', importo: totale, isTotal: true },
+    ]
+  }, [m3Data, kWData, yearForCalc, prices, expenses])
 
   const hotWaterData = useMemo<HotWaterRow[]>(() => {
     const userM3Rows = m3Data.filter((r) => r.key !== 'totale')
@@ -141,6 +248,27 @@ const PrintReportPage = () => {
 
   const onPrint = () => window.print()
 
+  const unitPriceColumns: ColumnsType<UnitPriceRow> = [
+    { title: 'Voce', dataIndex: 'name', key: 'name' },
+    { title: 'Valore', dataIndex: 'price', key: 'price', render: (v, r) => `${v.toFixed(4)} ${r.suffix}` },
+  ]
+  const gasolioBillsColumns: ColumnsType<{ key: string; label: string; liters: number; amount_eur: number; bill_date: string }> = [
+    { title: 'Descrizione', dataIndex: 'label', key: 'label' },
+    { title: 'Data', dataIndex: 'bill_date', key: 'bill_date' },
+    { title: 'Litri', dataIndex: 'liters', key: 'liters', render: (v) => v.toFixed(2) },
+    { title: 'Importo (€)', dataIndex: 'amount_eur', key: 'amount_eur', render: (v) => v.toFixed(2) },
+  ]
+
+  const expenseColumns: ColumnsType<ExpenseRow> = [
+    { title: 'Voce', dataIndex: 'name', key: 'name' },
+    {
+      title: 'Importo (€)',
+      dataIndex: 'importo',
+      key: 'importo',
+      render: (v, row) => (row.isTotal ? <strong>{v.toFixed(2)}</strong> : v.toFixed(2)),
+    },
+  ]
+
   const hotWaterColumns: ColumnsType<HotWaterRow> = [
     { title: 'Nome', dataIndex: 'name', key: 'name' },
     { title: 'M3', dataIndex: 'm3', key: 'm3', render: (v) => v.toFixed(0) },
@@ -210,6 +338,42 @@ const PrintReportPage = () => {
           </Button>
         </div>
       </div>
+
+      <Card className="mobile-card-title-compact" title={`PREZZI E BOLLETTE (${yearForCalc})`}>
+        <Table columns={unitPriceColumns} dataSource={unitPriceData} pagination={false} bordered size="small" rowKey="key" />
+        <div className="mt-4">
+          <Table
+            columns={gasolioBillsColumns}
+            dataSource={gasolioBillsData}
+            pagination={false}
+            bordered
+            size="small"
+            rowKey="key"
+            summary={() => (
+              <Table.Summary>
+                <Table.Summary.Row>
+                  <Table.Summary.Cell index={0} colSpan={3}><strong>Totale bollette gasolio</strong></Table.Summary.Cell>
+                  <Table.Summary.Cell index={3}><strong>{expenses.fatturaGasolio.toFixed(2)}</strong></Table.Summary.Cell>
+                </Table.Summary.Row>
+              </Table.Summary>
+            )}
+          />
+        </div>
+      </Card>
+
+      <Card className="mobile-card-title-compact" title="CONTATTORI - CALORE (kCal)">
+        <Table columns={buildMeterColumns('kCal')} dataSource={kCalData} pagination={false} bordered size="small" rowKey="key" />
+      </Card>
+      <Card className="mobile-card-title-compact" title="CONTATTORI - ACQUA (M3)">
+        <Table columns={buildMeterColumns('M³')} dataSource={m3Data} pagination={false} bordered size="small" rowKey="key" />
+      </Card>
+      <Card className="mobile-card-title-compact" title="CONTATTORI - ELETTRICO COMUNE (kW)">
+        <Table columns={buildMeterColumns('kW')} dataSource={kWData} pagination={false} bordered size="small" rowKey="key" />
+      </Card>
+
+      <Card className="mobile-card-title-compact" title="SPESE">
+        <Table columns={expenseColumns} dataSource={expenseData} pagination={false} bordered size="small" rowKey="key" />
+      </Card>
 
       <Card className="mobile-card-title-compact" title="CALCOLO SPESE INDIVIDUALI ACQUA CALDA">
         <Table

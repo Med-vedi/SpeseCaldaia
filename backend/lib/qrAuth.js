@@ -98,12 +98,17 @@ function verifyToken(token) {
 }
 
 function buildQrLoginUrl(token) {
-  const appUrl = process.env.PROD_FRONTEND_URL
+  const appUrl =
+    process.env.PROD_FRONTEND_URL ||
+    process.env.FRONTEND_URL ||
+    process.env.APP_URL
   if (!appUrl) {
-    throw new Error('Missing PROD_FRONTEND_URL')
+    throw new Error('Missing frontend URL (set PROD_FRONTEND_URL)')
   }
 
-  const normalized = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl
+  const withScheme = /^https?:\/\//i.test(appUrl) ? appUrl : `https://${appUrl}`
+  const parsed = new URL(withScheme)
+  const normalized = `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/$/, '')}`
   return `${normalized}/login?qr=${encodeURIComponent(token)}`
 }
 

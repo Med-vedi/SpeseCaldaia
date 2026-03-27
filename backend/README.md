@@ -15,6 +15,7 @@ SUPABASE_URL=your_supabase_url_here
 SUPABASE_ANON_KEY=your_supabase_anon_key_here
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
 PROD_FRONTEND_URL=https://your-app.vercel.app
+# Optional aliases (fallback): FRONTEND_URL or APP_URL
 QR_AUTH_SECRET=use_a_long_random_secret
 QR_AUTH_USERS=[{"key":"person-1","label":"Person 1","username":"person1","password":"person1-password"},{"key":"person-2","label":"Person 2","username":"person2","password":"person2-password"},{"key":"person-3","label":"Person 3","username":"person3","password":"person3-password"}]
 PORT=3001
