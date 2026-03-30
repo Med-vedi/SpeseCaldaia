@@ -1,9 +1,7 @@
 import { useMemo } from 'react'
 import { Card, Typography, Table, InputNumber, Select } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { useAuth } from '../contexts/AuthContext'
 import { useReadings } from '../contexts/ReadingsContext'
-import { useGetYearlyFinancialsQuery } from '../store/api/yearlyFinancialsApi'
 import { useCalculationYear } from '../hooks/useCalculationYear'
 import { yearOverYearDelta } from '../lib/bonificoTotals'
 
@@ -18,8 +16,7 @@ interface ExpenseRow {
 }
 
 const SpesePage = () => {
-  const { profile } = useAuth()
-  const { kCalData, m3Data, kWData, updateExpense } = useReadings()
+  const { kCalData, m3Data, kWData, prices, expenses, updateExpense } = useReadings()
   const {
     eligibleYears,
     selectedYear,
@@ -27,27 +24,6 @@ const SpesePage = () => {
     yearForCalc,
     yearSelectOptions,
   } = useCalculationYear()
-  const { data: yearlyForCalc } = useGetYearlyFinancialsQuery(
-    { organization_id: profile?.organization_id ?? '', year: yearForCalc },
-    { skip: !profile?.organization_id }
-  )
-
-  const prices = useMemo(
-    () => ({
-      acqua: yearlyForCalc?.acqua ?? 2,
-      corrente: yearlyForCalc?.corrente ?? 0.14,
-    }),
-    [yearlyForCalc]
-  )
-
-  const expenses = useMemo(
-    () => ({
-      fatturaGasolio: yearlyForCalc?.computed?.fattura_gasolio_total ?? 0,
-      manutenzione: yearlyForCalc?.manutenzione ?? 120,
-      funzionamentoServizioPct: yearlyForCalc?.funzionamento_servizio_pct ?? 20,
-    }),
-    [yearlyForCalc]
-  )
 
   const expenseData = useMemo<ExpenseRow[]>(() => {
     // Calculate Acqua fredda from m3Data

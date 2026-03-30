@@ -7,6 +7,7 @@ import { toFiniteNumberOrNull } from '../contexts/utils'
 import type { CounterType } from '../store/api/models'
 import UpdateReadingsDrawer from '../components/UpdateReadingsDrawer'
 import FloatingCalculator from '../components/FloatingCalculator.tsx'
+import { computeBonificoTotalRows } from '../lib/bonificoTotals'
 
 const { Title } = Typography
 
@@ -77,6 +78,9 @@ const ContattoriPage = () => {
     counters,
     getAvailableYears,
     meterDisplayYearsAsc,
+    financialYear,
+    prices,
+    expenses,
     organizationId,
     metersDataError,
     loading: readingsLoading,
@@ -98,6 +102,16 @@ const ContattoriPage = () => {
   const nameColWidth = compactMeterNames ? 52 : 140
 
   const yearsAsc = meterDisplayYearsAsc
+  const currentYear = new Date().getFullYear()
+  const eligibleYears = useMemo(
+    () => yearsAsc.filter((y) => yearsAsc.includes(y - 1)),
+    [yearsAsc]
+  )
+  const yearForCalc = useMemo(() => {
+    if (eligibleYears.includes(financialYear)) return financialYear
+    if (eligibleYears.includes(currentYear)) return currentYear
+    return eligibleYears[eligibleYears.length - 1] ?? currentYear
+  }, [eligibleYears, financialYear, currentYear])
 
   const [pendingValues, setPendingValues] = useState<Record<string, number | null>>({})
   const pendingUpdateRef = useRef<{
@@ -212,6 +226,29 @@ const ContattoriPage = () => {
   }
 
   const { kCalColumns, m3Columns, kWColumns } = useMemo(() => {
+    const { rows: bonificoRows } = computeBonificoTotalRows(
+      yearForCalc,
+      kCalData,
+      m3Data,
+      kWData,
+      prices,
+      {
+        fatturaGasolio: expenses.fatturaGasolio,
+        manutenzione: expenses.manutenzione,
+        funzionamentoServizioPct: expenses.funzionamentoServizioPct,
+      }
+    )
+    const bonificoByKey = new Map(bonificoRows.map((row) => [row.key, row.totale]))
+    const bonificoByName = new Map(bonificoRows.map((row) => [row.name, row.totale]))
+
+    const formatBonifico = (value: number | undefined) => {
+      if (value === undefined || !Number.isFinite(value)) return 'N/A'
+      return `${new Intl.NumberFormat('it-IT', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(value)} €`
+    }
+
     const diffDisplayLabel =
       yearsAsc.length < 2
         ? 'Differenza'
@@ -304,8 +341,18 @@ const ContattoriPage = () => {
           render: (_: string, record: MeterRow) => {
             const name = toDisplayPersonName(record.name)
             const label = compactMeterNames ? name.slice(0, 2) : name
+            const bonifico =
+              record.key !== 'totale'
+                ? bonificoByKey.get(record.key) ?? bonificoByName.get(record.name)
+                : undefined
+            const tooltipTitle = (
+              <div>
+                <div>{name}</div>
+                {record.key !== 'totale' && <div>Bonifico: {formatBonifico(bonifico)}</div>}
+              </div>
+            )
             return (
-              <Tooltip title={compactMeterNames ? name : undefined}>
+              <Tooltip title={tooltipTitle}>
                 <span className="font-medium">{label}</span>
               </Tooltip>
             )
@@ -330,7 +377,21 @@ const ContattoriPage = () => {
       m3Columns: build('M³', 0),
       kWColumns: build('kW', 1),
     }
-  }, [yearsAsc, getDisplayValue, handleInputBlur, compactMeterNames, nameColWidth])
+  }, [
+    yearForCalc,
+    kCalData,
+    m3Data,
+    kWData,
+    prices,
+    expenses.fatturaGasolio,
+    expenses.manutenzione,
+    expenses.funzionamentoServizioPct,
+    yearsAsc,
+    getDisplayValue,
+    handleInputBlur,
+    compactMeterNames,
+    nameColWidth,
+  ])
 
   const tableScrollX = Math.min(nameColWidth + yearsAsc.length * 128 + 130, 4000)
 

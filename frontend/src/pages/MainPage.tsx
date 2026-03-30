@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Layout, Menu, Button, Avatar, Dropdown, Typography, Drawer } from 'antd'
+import { Layout, Menu, Button, Avatar, Dropdown, Typography, Drawer, Switch, Tag } from 'antd'
 import {
   LogoutOutlined,
   UserOutlined,
@@ -27,6 +27,7 @@ import StatisticaPage from './StatisticaPage'
 import ProfilePage from './ProfilePage'
 import BollettePage from './BollettePage'
 import PrintReportPage from './PrintReportPage'
+import { useDraftMode } from '../contexts/DraftModeContext'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
@@ -46,6 +47,7 @@ const MainPage = () => {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const { user, profile, signOut } = useAuth()
+  const { isDraftMode, setDraftMode } = useDraftMode()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -262,6 +264,20 @@ const MainPage = () => {
                 }}
               />
             )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Switch
+                checked={isDraftMode}
+                onChange={setDraftMode}
+                checkedChildren="Bozza"
+                unCheckedChildren="Live"
+                size="small"
+              />
+              {isDraftMode && (
+                <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                  Senza DB
+                </Tag>
+              )}
+            </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '16px' }}>

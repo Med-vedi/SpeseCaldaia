@@ -23,6 +23,7 @@ import {
   coalesceFiniteNumber,
   type YearValuesRow,
 } from './utils'
+import { useDraftMode } from './DraftModeContext'
 
 export type KCalRow = YearValuesRow
 export type M3Row = YearValuesRow
@@ -94,9 +95,14 @@ interface ReadingsProviderProps {
 
 export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
   const { profile, loading: authLoading } = useAuth()
+  const { isDraftMode } = useDraftMode()
   const currentYear = new Date().getFullYear()
 
   const [financialYear, setFinancialYear] = useState(currentYear)
+  const [draftCounterOverrides, setDraftCounterOverrides] = useState<Record<string, number>>({})
+  const [draftExpenseOverridesByYear, setDraftExpenseOverridesByYear] = useState<
+    Record<number, Partial<Pick<Expenses, 'manutenzione' | 'funzionamentoServizioPct'>>>
+  >({})
 
   const organizationId = profile?.organization_id?.trim() ?? ''
   // Fetch as soon as we know org (from cache/localStorage); do not wait for /me to finish — that left contattori empty.
@@ -160,6 +166,38 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
 
   const [updateYearlyFinancials] = useUpdateYearlyFinancialsMutation()
 
+  const counterOverrideKey = useCallback((counterId: string, year: number) => `${counterId}_${year}`, [])
+
+  const mergedCounterValues = useMemo(() => {
+    if (Object.keys(draftCounterOverrides).length === 0) return allCounterValues
+
+    const out = [...allCounterValues]
+    for (const [key, value] of Object.entries(draftCounterOverrides)) {
+      const lastSep = key.lastIndexOf('_')
+      if (lastSep <= 0) continue
+      const counterId = key.slice(0, lastSep)
+      const year = Number(key.slice(lastSep + 1))
+      if (!counterId || !Number.isFinite(year)) continue
+
+      const idx = out.findIndex((v) => v.counter_id === counterId && v.year === year)
+      if (idx >= 0) {
+        out[idx] = { ...out[idx], value }
+      } else {
+        out.push({
+          id: `draft-${counterId}-${year}`,
+          counter_id: counterId,
+          year,
+          value,
+          reading_date: null,
+          notes: null,
+          created_at: '',
+          updated_at: '',
+        })
+      }
+    }
+    return out
+  }, [allCounterValues, draftCounterOverrides])
+
   const meterDisplayYearsAsc = useMemo(() => {
     let maxY = currentYear
     let minY = MIN_METER_YEAR
@@ -197,10 +235,14 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
   const expenses = useMemo<Expenses>(() => ({
     prezzoGasolio: prices.gasolio,
     fatturaGasolio: yearlyData?.computed?.fattura_gasolio_total ?? 0,
-    manutenzione: yearlyData?.manutenzione ?? 120,
-    funzionamentoServizioPct: yearlyData?.funzionamento_servizio_pct ?? 20,
+    manutenzione:
+      draftExpenseOverridesByYear[financialYear]?.manutenzione ?? yearlyData?.manutenzione ?? 120,
+    funzionamentoServizioPct:
+      draftExpenseOverridesByYear[financialYear]?.funzionamentoServizioPct ??
+      yearlyData?.funzionamento_servizio_pct ??
+      20,
     corrente: 0,
-  }), [prices.gasolio, yearlyData])
+  }), [prices.gasolio, yearlyData, draftExpenseOverridesByYear, financialYear])
 
   const [createCounterValue] = useCreateCounterValueMutation()
   const [updateCounterValue] = useUpdateCounterValueMutation()
@@ -249,14 +291,14 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
 
     const kCalRows = addKCalTotal(
       sortByPreferredUsers(filterCountersByType(counters, 'heat')).map((counter) =>
-        transformCounterToYearRow(counter, years, allCounterValues)
+        transformCounterToYearRow(counter, years, mergedCounterValues)
       ),
       years
     )
 
     const m3Rows = addM3Total(
       sortByPreferredUsers(filterCountersByType(counters, 'water')).map((counter) =>
-        transformCounterToYearRow(counter, years, allCounterValues)
+        transformCounterToYearRow(counter, years, mergedCounterValues)
       ),
       years
     )
@@ -264,10 +306,10 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     // kW is organization-wide: expose only the shared electric counter.
     const kWRows = filterElectricCounters(counters)
       .filter((counter) => counter.counter_type === 'electric_common')
-      .map((counter) => transformCounterToYearRow(counter, years, allCounterValues))
+      .map((counter) => transformCounterToYearRow(counter, years, mergedCounterValues))
 
     return { kCalData: kCalRows, m3Data: m3Rows, kWData: kWRows }
-  }, [counters, allCounterValues, meterDisplayYearsAsc])
+  }, [counters, mergedCounterValues, meterDisplayYearsAsc])
 
 
 
@@ -314,22 +356,29 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     }
 
     try {
+      if (isDraftMode) {
+        setDraftCounterOverrides((prev) => ({
+          ...prev,
+          [counterOverrideKey(counterId, year)]: value,
+        }))
+        return
+      }
       await saveCounterValue(counterId, year, value)
     } catch (error) {
       console.error('Error updating counter value:', error)
       throw error
     }
-  }, [counters, saveCounterValue])
+  }, [counters, saveCounterValue, isDraftMode, counterOverrideKey])
 
   const getAvailableYears = useCallback(() => {
     const years = new Set<number>()
-    allCounterValues.forEach((cv) => {
+    mergedCounterValues.forEach((cv) => {
       if (cv.year >= MIN_METER_YEAR) years.add(cv.year)
     })
     years.add(currentYear)
     meterDisplayYearsAsc.forEach((y) => years.add(y))
     return Array.from(years).sort((a, b) => b - a)
-  }, [allCounterValues, currentYear, meterDisplayYearsAsc])
+  }, [mergedCounterValues, currentYear, meterDisplayYearsAsc])
 
   const updateReadings = useCallback(async (values: Record<string, number>, year: number) => {
     const ReadingType = {
@@ -409,6 +458,16 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     async (key: keyof Expenses, value: number) => {
       if (!profile?.organization_id || !['manutenzione', 'funzionamentoServizioPct'].includes(key)) return
       try {
+        if (isDraftMode) {
+          setDraftExpenseOverridesByYear((prev) => ({
+            ...prev,
+            [financialYear]: {
+              ...(prev[financialYear] ?? {}),
+              [key]: value,
+            },
+          }))
+          return
+        }
         await updateYearlyFinancials({
           organization_id: profile.organization_id,
           year: financialYear,
@@ -420,7 +479,7 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
         throw error
       }
     },
-    [profile?.organization_id, financialYear, updateYearlyFinancials]
+    [profile?.organization_id, financialYear, updateYearlyFinancials, isDraftMode]
   )
 
   const getTotalExpensesPerUser = useCallback(() => {
@@ -456,7 +515,7 @@ export const ReadingsProvider = ({ children }: ReadingsProviderProps) => {
     prices,
     expenses,
     loading,
-    allCounterValues,
+    allCounterValues: mergedCounterValues,
     counters,
     getAvailableYears,
     meterDisplayYearsAsc,

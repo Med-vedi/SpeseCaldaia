@@ -5,6 +5,7 @@ import { Provider } from 'react-redux'
 import { store } from './store/store'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ReadingsProvider } from './contexts/ReadingsContext'
+import { DraftModeProvider } from './contexts/DraftModeContext'
 import LoginPage from './pages/LoginPage'
 import MainPage from './pages/MainPage'
 
@@ -77,9 +78,11 @@ function App() {
       >
         <AntdApp>
           <AuthProvider>
-            <ReadingsProvider>
-              <AppContent />
-            </ReadingsProvider>
+            <DraftModeProvider>
+              <ReadingsProvider>
+                <AppContent />
+              </ReadingsProvider>
+            </DraftModeProvider>
           </AuthProvider>
         </AntdApp>
       </ConfigProvider>
