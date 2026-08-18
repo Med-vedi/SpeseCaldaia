@@ -436,7 +436,7 @@ const ContattoriPage = () => {
           showIcon
           className="mb-4"
           message="Profilo senza organization_id"
-          description="Le letture non possono essere caricate. Verifica l’account in Supabase (tabella users, colonna organization_id) e che coincida con organization_id dei contatori."
+          description="Le letture non possono essere caricate. Verifica l’account nel database (tabella users, colonna organization_id) e che coincida con organization_id dei contatori."
         />
       )}
       {metersDataError && (

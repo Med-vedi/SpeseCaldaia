@@ -1,103 +1,46 @@
 # Authentication Architecture
 
-## Supabase Two-Table System
+## Single-Table System
 
-Supabase uses a two-table system for user management:
+Auth and profile data both live in `public.users` — there is no separate auth-provider table.
 
-### 1. `auth.users` (Supabase Managed)
-- **Purpose**: Authentication and password storage
-- **Managed by**: Supabase (you don't directly modify this)
-- **Contains**:
-  - `id` (UUID)
-  - `email`
-  - `encrypted_password` (encrypted by Supabase)
-  - `email_confirmed_at`
-  - `created_at`, `updated_at`
-  - Other auth-related fields
-
-### 2. `public.users` (Your Profile Table)
-- **Purpose**: User profile and application-specific data
-- **Managed by**: Your application
-- **Contains**:
-  - `id` (UUID, references `auth.users.id`)
-  - `username`
-  - `organization_id`
-  - `role` (admin, guest, basic)
-  - `email` (copied/kept in sync for app queries)
-  - `user_key` (stable UUID used for QR login)
-  - `type` (currently defaulted to `user`)
-  - `created_at`, `updated_at`
+- `id` (UUID, primary key)
+- `username` (unique)
+- `organization_id`
+- `role` (admin, guest, basic)
+- `email` (unique, case-insensitive)
+- `password_hash` (bcrypt, via `lib/passwords.js`)
+- `user_key` (stable UUID used for QR login)
+- `type` (currently defaulted to `user`)
+- `created_at`, `updated_at`
 
 ## How It Works
 
 ### User Creation Flow
 
-1. **Create Auth User** (in `auth.users`):
-   ```javascript
-   await supabase.auth.admin.createUser({
-     email: 'user@example.com',
-     password: 'password123',
-     email_confirm: true
-   })
-   ```
-   - This creates the user in `auth.users` with encrypted password
-   - Returns the user ID
-
-2. **Create Profile** (in `public.users`):
-   - A DB trigger (`on_auth_user_created`) can auto-create a default profile row.
-   - API routes may also create/update profile fields explicitly after auth user creation.
-   - In environments where both are enabled, prefer update/upsert semantics to avoid duplicate-key inserts.
-   ```javascript
-   await supabase
-     .from('users')
-     .upsert({
-       id: authUser.id,  // Link to auth.users
-       username: 'username',
-       organization_id: 'org-1',
-       role: 'basic',
-       email: 'user@example.com',
-       user_key: crypto.randomUUID(),
-       type: 'user'
-     })
-   ```
+`POST /api/users` (see `routes/users.js`) hashes the password with bcrypt and inserts one row into `public.users` directly — no separate auth-provider call, no two-phase create/rollback.
 
 ### Login Flow
 
-1. **Resolve credential identifier**:
-   - Backend login accepts a username-like identifier.
-   - If input is not an email, app resolves `users.username -> users.email` (or fetches from `auth.users` as fallback).
+1. **Resolve credential identifier**: backend login accepts a username-like identifier. If the input isn't an email, it's resolved via `users.username`.
+2. **Authenticate**: `bcrypt.compare(password, password_hash)` against the matched row (`lib/passwords.js`).
+3. **Issue a session**: on success, `lib/jwt.js` signs a JWT (`{ sub: userId }`, `JWT_EXPIRES_IN`) with `JWT_SECRET`. No separate session store — JWTs are stateless.
 
-2. **Authenticate** (against `auth.users`):
-   ```javascript
-   await supabase.auth.signInWithPassword({
-     email: 'user@example.com',
-     password: 'password123'
-   })
-   ```
-   - Supabase validates credentials against `auth.users`
-   - Returns session token and user ID
+### Request Authentication
 
-3. **Fetch Profile** (from `public.users`):
-   ```javascript
-   await supabase
-     .from('users')
-     .select('*')
-     .eq('id', authUser.id)
-     .single()
-   ```
+Every protected route is mounted behind `middleware/authenticate.js`, which verifies the bearer JWT and re-fetches `{ id, email }` from `public.users` on every request (profile data is never trusted from the token itself).
+
+### QR Login
+
+`POST /api/auth/qr-login` verifies a separate, non-JWT HMAC-signed token (`lib/qrAuth.js`, keyed by `QR_AUTH_SECRET`) that encodes a user's `user_key`. On a match, the backend signs a normal JWT directly for that user — no magic-link/OTP exchange involved.
 
 ## Why This Architecture?
 
-- **Security**: Passwords are encrypted and managed by Supabase
-- **Separation**: Auth logic separate from business logic
-- **Flexibility**: Add custom fields to `public.users` without touching auth
-- **RLS**: Row Level Security policies work with `auth.uid()`
+- **Simplicity**: one table, one code path for both identity and profile data.
+- **No vendor auth service**: Neon is plain Postgres; auth is implemented in `lib/jwt.js` + `lib/passwords.js`, not an external provider.
+- **Org-scoping enforced in application code**: see `lib/orgAccess.js` — there is no RLS in this schema (see `migrations/1_init_schema.js`).
 
 ## Important Notes
 
-- **Never store passwords** in `public.users` - they belong in `auth.users`
-- **Always use Supabase Auth APIs** to create/authenticate users
-- **The foreign key** (`id` references `auth.users.id`) ensures data integrity
-- **CASCADE DELETE**: If an auth user is deleted, the profile is automatically deleted
-- **QR login** relies on `public.users.user_key` and then creates a Supabase magic-link session for that user
-
+- **Passwords** are only ever stored as bcrypt hashes in `password_hash` — never log or return this column (`toPublicUser()` helpers strip it from API responses).
+- **CASCADE DELETE**: deleting a `public.users` row cascades to that user's `counters` rows (`ON DELETE CASCADE`).

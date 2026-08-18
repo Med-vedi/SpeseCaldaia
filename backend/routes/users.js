@@ -1,29 +1,15 @@
 const express = require('express')
 const router = express.Router()
 const { randomUUID } = require('crypto')
-const supabase = require('../lib/supabase')
+const pool = require('../lib/db')
+const authenticate = require('../middleware/authenticate')
+const { hashPassword } = require('../lib/passwords')
 const { createStaticQrToken, buildQrLoginUrl, quickChartQrUrl } = require('../lib/qrAuth')
 
-// Middleware to verify authentication
-const authenticate = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No authorization token provided' })
-    }
-
-    const token = authHeader.split(' ')[1]
-    const { data: { user }, error } = await supabase.auth.getUser(token)
-
-    if (error || !user) {
-      return res.status(401).json({ error: 'Invalid or expired token' })
-    }
-
-    req.user = user
-    next()
-  } catch (error) {
-    res.status(401).json({ error: 'Authentication failed' })
-  }
+function toPublicUser(row) {
+  if (!row) return row
+  const { password_hash, ...publicUser } = row
+  return publicUser
 }
 
 function qrPayloadFromProfile(profile) {
@@ -42,18 +28,15 @@ function qrPayloadFromProfile(profile) {
  */
 router.get('/me/profile', authenticate, async (req, res) => {
   try {
-    const { data: profile, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', req.user.id)
-      .single()
+    const { rows } = await pool.query('SELECT * FROM public.users WHERE id = $1', [req.user.id])
+    const profile = rows[0]
 
-    if (error || !profile) {
+    if (!profile) {
       return res.status(404).json({ error: 'User profile not found' })
     }
 
     const qr = qrPayloadFromProfile(profile)
-    return res.json({ profile, qr })
+    return res.json({ profile: toPublicUser(profile), qr })
   } catch (error) {
     console.error('Get my profile error:', error)
     return res.status(500).json({ error: 'Internal server error' })
@@ -66,27 +49,21 @@ router.get('/me/profile', authenticate, async (req, res) => {
  */
 router.get('/me/organization-qr', authenticate, async (req, res) => {
   try {
-    const { data: currentProfile, error: currentProfileError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', req.user.id)
-      .single()
+    const { rows: currentRows } = await pool.query('SELECT * FROM public.users WHERE id = $1', [
+      req.user.id,
+    ])
+    const currentProfile = currentRows[0]
 
-    if (currentProfileError || !currentProfile) {
+    if (!currentProfile) {
       return res.status(404).json({ error: 'Current user profile not found' })
     }
 
-    const { data: orgUsers, error: orgUsersError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('organization_id', currentProfile.organization_id)
-      .order('username', { ascending: true })
+    const { rows: orgUsers } = await pool.query(
+      'SELECT * FROM public.users WHERE organization_id = $1 ORDER BY username ASC',
+      [currentProfile.organization_id]
+    )
 
-    if (orgUsersError) {
-      return res.status(500).json({ error: orgUsersError.message })
-    }
-
-    const users = (orgUsers || []).map((profile) => ({
+    const users = orgUsers.map((profile) => ({
       id: profile.id,
       username: profile.username,
       email: profile.email,
@@ -104,7 +81,7 @@ router.get('/me/organization-qr', authenticate, async (req, res) => {
 
 /**
  * @route PUT /api/users/me/profile
- * @desc Update current user profile + auth email/password
+ * @desc Update current user profile (username, email, password)
  * @body { username?: string, email?: string, password?: string }
  */
 router.put('/me/profile', authenticate, async (req, res) => {
@@ -112,59 +89,41 @@ router.put('/me/profile', authenticate, async (req, res) => {
     const { username, email, password } = req.body
     const userId = req.user.id
 
-    const { data: existingUser, error: existingError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single()
+    const { rows: existingRows } = await pool.query('SELECT * FROM public.users WHERE id = $1', [
+      userId,
+    ])
+    const existingUser = existingRows[0]
 
-    if (existingError || !existingUser) {
+    if (!existingUser) {
       return res.status(404).json({ error: 'User profile not found' })
     }
 
     if (username && username !== existingUser.username) {
-      const { data: usernameCheck } = await supabase
-        .from('users')
-        .select('id')
-        .eq('username', username)
-        .neq('id', userId)
-        .single()
-
-      if (usernameCheck) {
+      const { rows: usernameCheck } = await pool.query(
+        'SELECT id FROM public.users WHERE username = $1 AND id != $2',
+        [username, userId]
+      )
+      if (usernameCheck[0]) {
         return res.status(409).json({ error: 'Username already exists' })
       }
     }
 
-    if (email || password) {
-      const { error: authUpdateError } = await supabase.auth.admin.updateUserById(userId, {
-        ...(email ? { email } : {}),
-        ...(password ? { password } : {}),
-      })
+    const updates = {}
+    if (username) updates.username = username
+    if (email) updates.email = email
+    if (password) updates.password_hash = await hashPassword(String(password))
+    updates.updated_at = new Date().toISOString()
 
-      if (authUpdateError) {
-        return res.status(400).json({ error: authUpdateError.message })
-      }
-    }
-
-    const updates = {
-      ...(username ? { username } : {}),
-      ...(email ? { email } : {}),
-      updated_at: new Date().toISOString(),
-    }
-
-    const { data: updatedProfile, error: updateError } = await supabase
-      .from('users')
-      .update(updates)
-      .eq('id', userId)
-      .select('*')
-      .single()
-
-    if (updateError || !updatedProfile) {
-      return res.status(500).json({ error: updateError?.message || 'Failed to update profile' })
-    }
+    const setKeys = Object.keys(updates)
+    const setClause = setKeys.map((key, idx) => `${key} = $${idx + 2}`).join(', ')
+    const { rows } = await pool.query(
+      `UPDATE public.users SET ${setClause} WHERE id = $1 RETURNING *`,
+      [userId, ...setKeys.map((key) => updates[key])]
+    )
+    const updatedProfile = rows[0]
 
     const qr = qrPayloadFromProfile(updatedProfile)
-    return res.json({ profile: updatedProfile, qr })
+    return res.json({ profile: toPublicUser(updatedProfile), qr })
   } catch (error) {
     console.error('Update my profile error:', error)
     return res.status(500).json({ error: 'Internal server error' })
@@ -180,22 +139,18 @@ router.post('/me/qr/regenerate', authenticate, async (req, res) => {
     const userId = req.user.id
     const newUserKey = randomUUID()
 
-    const { data: updatedProfile, error } = await supabase
-      .from('users')
-      .update({
-        user_key: newUserKey,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', userId)
-      .select('*')
-      .single()
+    const { rows } = await pool.query(
+      `UPDATE public.users SET user_key = $2, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [userId, newUserKey]
+    )
+    const updatedProfile = rows[0]
 
-    if (error || !updatedProfile) {
-      return res.status(500).json({ error: error?.message || 'Failed to regenerate QR code' })
+    if (!updatedProfile) {
+      return res.status(500).json({ error: 'Failed to regenerate QR code' })
     }
 
     const qr = qrPayloadFromProfile(updatedProfile)
-    return res.json({ profile: updatedProfile, qr })
+    return res.json({ profile: toPublicUser(updatedProfile), qr })
   } catch (error) {
     console.error('Regenerate QR error:', error)
     return res.status(500).json({ error: 'Internal server error' })
@@ -216,13 +171,13 @@ router.post('/:id/force-password', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' })
     }
 
-    const { data: requesterProfile, error: requesterError } = await supabase
-      .from('users')
-      .select('id, role, organization_id')
-      .eq('id', req.user.id)
-      .single()
+    const { rows: requesterRows } = await pool.query(
+      'SELECT id, role, organization_id FROM public.users WHERE id = $1',
+      [req.user.id]
+    )
+    const requesterProfile = requesterRows[0]
 
-    if (requesterError || !requesterProfile) {
+    if (!requesterProfile) {
       return res.status(403).json({ error: 'Requester profile not found' })
     }
 
@@ -230,13 +185,13 @@ router.post('/:id/force-password', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Only admin can force update user passwords' })
     }
 
-    const { data: targetProfile, error: targetError } = await supabase
-      .from('users')
-      .select('id, organization_id')
-      .eq('id', id)
-      .single()
+    const { rows: targetRows } = await pool.query(
+      'SELECT id, organization_id FROM public.users WHERE id = $1',
+      [id]
+    )
+    const targetProfile = targetRows[0]
 
-    if (targetError || !targetProfile) {
+    if (!targetProfile) {
       return res.status(404).json({ error: 'Target user not found' })
     }
 
@@ -244,18 +199,11 @@ router.post('/:id/force-password', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Cannot update users outside your organization' })
     }
 
-    const { error: authUpdateError } = await supabase.auth.admin.updateUserById(id, {
-      password: String(password),
-    })
-
-    if (authUpdateError) {
-      return res.status(400).json({ error: authUpdateError.message })
-    }
-
-    await supabase
-      .from('users')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', id)
+    const passwordHash = await hashPassword(String(password))
+    await pool.query(
+      'UPDATE public.users SET password_hash = $2, updated_at = NOW() WHERE id = $1',
+      [id, passwordHash]
+    )
 
     return res.json({ message: 'User password updated successfully' })
   } catch (error) {
@@ -273,23 +221,24 @@ router.get('/', authenticate, async (req, res) => {
   try {
     const { organization_id, role } = req.query
 
-    let query = supabase.from('users').select('*')
-
-    // Apply filters
+    const conditions = []
+    const params = []
     if (organization_id) {
-      query = query.eq('organization_id', organization_id)
+      params.push(organization_id)
+      conditions.push(`organization_id = $${params.length}`)
     }
     if (role) {
-      query = query.eq('role', role)
+      params.push(role)
+      conditions.push(`role = $${params.length}`)
     }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
 
-    const { data, error } = await query.order('created_at', { ascending: false })
+    const { rows } = await pool.query(
+      `SELECT * FROM public.users ${whereClause} ORDER BY created_at DESC`,
+      params
+    )
 
-    if (error) {
-      return res.status(500).json({ error: error.message })
-    }
-
-    res.json(data)
+    res.json(rows.map(toPublicUser))
   } catch (error) {
     console.error('Get users error:', error)
     res.status(500).json({ error: 'Internal server error' })
@@ -306,34 +255,23 @@ router.post('/create-profile', authenticate, async (req, res) => {
     const userId = req.user.id
     const { username, organization_id, role } = req.body
 
-    // Check if profile already exists
-    const { data: existingProfile } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single()
-
-    if (existingProfile) {
+    const { rows: existingRows } = await pool.query('SELECT * FROM public.users WHERE id = $1', [
+      userId,
+    ])
+    if (existingRows[0]) {
       return res.json({
         message: 'Profile already exists',
-        profile: existingProfile,
+        profile: toPublicUser(existingRows[0]),
       })
     }
 
-    // Get user email from auth (required field)
-    let userEmail = req.user.email
+    const userEmail = req.user.email
     if (!userEmail) {
-      // Fetch from auth.users if not in req.user
-      const { data: authUser } = await supabase.auth.admin.getUserById(userId)
-      if (!authUser?.user?.email) {
-        return res.status(400).json({ error: 'User email is required but not found' })
-      }
-      userEmail = authUser.user.email
+      return res.status(400).json({ error: 'User email is required but not found' })
     }
 
     // Generate defaults
-    const defaultUsername = username ||
-      (userEmail ? userEmail.split('@')[0] : `user_${userId.substring(0, 8)}`)
+    const defaultUsername = username || userEmail.split('@')[0]
     const defaultOrgId = organization_id || 'default-org'
     const defaultRole = role || 'basic'
 
@@ -346,43 +284,27 @@ router.post('/create-profile', authenticate, async (req, res) => {
     let finalUsername = defaultUsername
     let suffix = 1
     while (true) {
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('id')
-        .eq('username', finalUsername)
-        .single()
-
-      if (!existingUser) {
+      const { rows: existingUserRows } = await pool.query(
+        'SELECT id FROM public.users WHERE username = $1',
+        [finalUsername]
+      )
+      if (!existingUserRows[0]) {
         break
       }
       finalUsername = `${defaultUsername}_${suffix}`
       suffix++
     }
 
-    // Create profile
-    const { data: profile, error: profileError } = await supabase
-      .from('users')
-      .insert({
-        id: userId,
-        username: finalUsername,
-        organization_id: defaultOrgId,
-        role: defaultRole,
-        email: userEmail,
-        user_key: randomUUID(),
-        type: 'user', // Default type, adjust if your schema requires different values
-      })
-      .select()
-      .single()
-
-    if (profileError) {
-      return res.status(500).json({
-        error: 'Failed to create user profile: ' + profileError.message
-      })
-    }
+    const { rows } = await pool.query(
+      `INSERT INTO public.users (id, username, organization_id, role, email, user_key, type)
+       VALUES ($1, $2, $3, $4, $5, $6, 'user')
+       RETURNING *`,
+      [userId, finalUsername, defaultOrgId, defaultRole, userEmail, randomUUID()]
+    )
 
     res.status(201).json({
       message: 'Profile created successfully',
-      profile,
+      profile: toPublicUser(rows[0]),
     })
   } catch (error) {
     console.error('Create profile error:', error)
@@ -398,20 +320,13 @@ router.get('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params
 
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', id)
-      .single()
+    const { rows } = await pool.query('SELECT * FROM public.users WHERE id = $1', [id])
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: 'User not found' })
-      }
-      return res.status(500).json({ error: error.message })
+    if (!rows[0]) {
+      return res.status(404).json({ error: 'User not found' })
     }
 
-    res.json(data)
+    res.json(toPublicUser(rows[0]))
   } catch (error) {
     console.error('Get user error:', error)
     res.status(500).json({ error: 'Internal server error' })
@@ -439,53 +354,28 @@ router.post('/', authenticate, async (req, res) => {
     }
 
     // Check if username already exists
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('id')
-      .eq('username', username)
-      .single()
-
-    if (existingUser) {
+    const { rows: existingUserRows } = await pool.query(
+      'SELECT id FROM public.users WHERE username = $1',
+      [username]
+    )
+    if (existingUserRows[0]) {
       return res.status(409).json({ error: 'Username already exists' })
     }
 
-    // Create auth user
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true, // Auto-confirm email
-      user_metadata: {
-        username,
-      },
-    })
+    const passwordHash = await hashPassword(String(password))
 
-    if (authError) {
-      return res.status(400).json({ error: authError.message })
-    }
+    const { rows } = await pool.query(
+      `INSERT INTO public.users (id, username, organization_id, role, email, password_hash, user_key, type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'user')
+       RETURNING *`,
+      [randomUUID(), username, organization_id, role, email, passwordHash, randomUUID()]
+    )
 
-    // Create user profile
-    const { data: profile, error: profileError } = await supabase
-      .from('users')
-      .insert({
-        id: authData.user.id,
-        username,
-        organization_id,
-        role,
-        email,
-        user_key: randomUUID(),
-        type: 'user', // Default type, adjust if your schema requires different values
-      })
-      .select()
-      .single()
-
-    if (profileError) {
-      // Cleanup: delete auth user if profile creation fails
-      await supabase.auth.admin.deleteUser(authData.user.id)
-      return res.status(500).json({ error: 'Failed to create user profile: ' + profileError.message })
-    }
-
-    res.status(201).json(profile)
+    res.status(201).json(toPublicUser(rows[0]))
   } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Username or email already exists' })
+    }
     console.error('Create user error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -501,14 +391,12 @@ router.put('/:id', authenticate, async (req, res) => {
     const { id } = req.params
     const { username, organization_id, role } = req.body
 
-    // Check if user exists
-    const { data: existingUser, error: fetchError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', id)
-      .single()
+    const { rows: existingRows } = await pool.query('SELECT * FROM public.users WHERE id = $1', [
+      id,
+    ])
+    const existingUser = existingRows[0]
 
-    if (fetchError || !existingUser) {
+    if (!existingUser) {
       return res.status(404).json({ error: 'User not found' })
     }
 
@@ -519,13 +407,11 @@ router.put('/:id', authenticate, async (req, res) => {
 
     // Check username uniqueness if changing username
     if (username && username !== existingUser.username) {
-      const { data: usernameCheck } = await supabase
-        .from('users')
-        .select('id')
-        .eq('username', username)
-        .single()
-
-      if (usernameCheck) {
+      const { rows: usernameCheck } = await pool.query(
+        'SELECT id FROM public.users WHERE username = $1',
+        [username]
+      )
+      if (usernameCheck[0]) {
         return res.status(409).json({ error: 'Username already exists' })
       }
     }
@@ -537,18 +423,14 @@ router.put('/:id', authenticate, async (req, res) => {
     if (role) updates.role = role
     updates.updated_at = new Date().toISOString()
 
-    const { data, error } = await supabase
-      .from('users')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single()
+    const setKeys = Object.keys(updates)
+    const setClause = setKeys.map((key, idx) => `${key} = $${idx + 2}`).join(', ')
+    const { rows } = await pool.query(
+      `UPDATE public.users SET ${setClause} WHERE id = $1 RETURNING *`,
+      [id, ...setKeys.map((key) => updates[key])]
+    )
 
-    if (error) {
-      return res.status(500).json({ error: error.message })
-    }
-
-    res.json(data)
+    res.json(toPublicUser(rows[0]))
   } catch (error) {
     console.error('Update user error:', error)
     res.status(500).json({ error: 'Internal server error' })
@@ -563,22 +445,11 @@ router.delete('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params
 
-    // Check if user exists
-    const { data: existingUser, error: fetchError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('id', id)
-      .single()
+    // Deleting the user row cascades to their counters (ON DELETE CASCADE).
+    const { rows } = await pool.query('DELETE FROM public.users WHERE id = $1 RETURNING id', [id])
 
-    if (fetchError || !existingUser) {
+    if (!rows[0]) {
       return res.status(404).json({ error: 'User not found' })
-    }
-
-    // Delete auth user (this will cascade delete the profile due to ON DELETE CASCADE)
-    const { error: deleteError } = await supabase.auth.admin.deleteUser(id)
-
-    if (deleteError) {
-      return res.status(500).json({ error: 'Failed to delete user: ' + deleteError.message })
     }
 
     res.json({ message: 'User deleted successfully' })
@@ -589,4 +460,3 @@ router.delete('/:id', authenticate, async (req, res) => {
 })
 
 module.exports = router
-

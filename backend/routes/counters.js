@@ -1,40 +1,8 @@
 const express = require('express')
 const router = express.Router()
-const supabase = require('../lib/supabase')
-const { getAuthUserFromBearerToken } = require('../lib/authHelpers')
-
-// Middleware to verify authentication
-const authenticate = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No authorization token provided' })
-    }
-
-    const token = authHeader.split(' ')[1]
-    const { data: { user }, error } = await getAuthUserFromBearerToken(token)
-
-    if (error || !user) {
-      return res.status(401).json({ error: 'Invalid or expired token' })
-    }
-
-    req.user = user
-    next()
-  } catch (error) {
-    res.status(401).json({ error: 'Authentication failed' })
-  }
-}
-
-async function userBelongsToOrganization(userId, organizationId) {
-  if (!userId || !organizationId) return false
-  const { data, error } = await supabase
-    .from('users')
-    .select('id')
-    .eq('id', userId)
-    .eq('organization_id', organizationId)
-    .maybeSingle()
-  return !error && !!data
-}
+const pool = require('../lib/db')
+const authenticate = require('../middleware/authenticate')
+const { userMayAccessOrganization } = require('../lib/orgAccess')
 
 /**
  * @route GET /api/counters
@@ -49,17 +17,12 @@ router.get('/', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'organization_id is required' })
     }
 
-    const { data, error } = await supabase
-      .from('counters')
-      .select('*')
-      .eq('organization_id', organization_id)
-      .order('created_at', { ascending: false })
+    const { rows } = await pool.query(
+      'SELECT * FROM public.counters WHERE organization_id = $1 ORDER BY created_at DESC',
+      [organization_id]
+    )
 
-    if (error) {
-      return res.status(500).json({ error: error.message })
-    }
-
-    res.json(data || [])
+    res.json(rows)
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -73,20 +36,13 @@ router.get('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params
 
-    const { data, error } = await supabase
-      .from('counters')
-      .select('*')
-      .eq('id', id)
-      .single()
+    const { rows } = await pool.query('SELECT * FROM public.counters WHERE id = $1', [id])
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: 'Counter not found' })
-      }
-      return res.status(500).json({ error: error.message })
+    if (!rows[0]) {
+      return res.status(404).json({ error: 'Counter not found' })
     }
 
-    res.json(data)
+    res.json(rows[0])
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -129,7 +85,7 @@ router.post('/', authenticate, async (req, res) => {
     }
 
     if (counter_type !== 'electric_common') {
-      const belongs = await userBelongsToOrganization(user_id, organization_id)
+      const belongs = await userMayAccessOrganization(user_id, organization_id)
       if (!belongs) {
         return res.status(400).json({
           error: 'user_id must belong to the provided organization_id'
@@ -137,22 +93,14 @@ router.post('/', authenticate, async (req, res) => {
       }
     }
 
-    const { data, error } = await supabase
-      .from('counters')
-      .insert({
-        organization_id,
-        user_id: counter_type === 'electric_common' ? null : user_id,
-        counter_type,
-        name,
-      })
-      .select()
-      .single()
+    const { rows } = await pool.query(
+      `INSERT INTO public.counters (organization_id, user_id, counter_type, name)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [organization_id, counter_type === 'electric_common' ? null : user_id, counter_type, name]
+    )
 
-    if (error) {
-      return res.status(500).json({ error: error.message })
-    }
-
-    res.status(201).json(data)
+    res.status(201).json(rows[0])
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -169,13 +117,13 @@ router.put('/:id', authenticate, async (req, res) => {
     const { name, counter_type, user_id } = req.body
 
     // Check if counter exists
-    const { data: existingCounter, error: fetchError } = await supabase
-      .from('counters')
-      .select('*')
-      .eq('id', id)
-      .single()
+    const { rows: existingRows } = await pool.query(
+      'SELECT * FROM public.counters WHERE id = $1',
+      [id]
+    )
+    const existingCounter = existingRows[0]
 
-    if (fetchError || !existingCounter) {
+    if (!existingCounter) {
       return res.status(404).json({ error: 'Counter not found' })
     }
 
@@ -201,7 +149,7 @@ router.put('/:id', authenticate, async (req, res) => {
           error: 'user_id is required for non-electric_common counters'
         })
       }
-      const belongs = await userBelongsToOrganization(finalUserId, existingCounter.organization_id)
+      const belongs = await userMayAccessOrganization(finalUserId, existingCounter.organization_id)
       if (!belongs) {
         return res.status(400).json({
           error: 'user_id must belong to the counter organization'
@@ -219,18 +167,18 @@ router.put('/:id', authenticate, async (req, res) => {
       updates.user_id = user_id
     }
 
-    const { data, error } = await supabase
-      .from('counters')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (error) {
-      return res.status(500).json({ error: error.message })
+    const setKeys = Object.keys(updates)
+    if (setKeys.length === 0) {
+      return res.json(existingCounter)
     }
 
-    res.json(data)
+    const setClause = setKeys.map((key, idx) => `${key} = $${idx + 2}`).join(', ')
+    const { rows } = await pool.query(
+      `UPDATE public.counters SET ${setClause} WHERE id = $1 RETURNING *`,
+      [id, ...setKeys.map((key) => updates[key])]
+    )
+
+    res.json(rows[0])
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -244,24 +192,12 @@ router.delete('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params
 
-    // Check if counter exists
-    const { data: existingCounter, error: fetchError } = await supabase
-      .from('counters')
-      .select('id')
-      .eq('id', id)
-      .single()
+    const { rows } = await pool.query('DELETE FROM public.counters WHERE id = $1 RETURNING id', [
+      id,
+    ])
 
-    if (fetchError || !existingCounter) {
+    if (!rows[0]) {
       return res.status(404).json({ error: 'Counter not found' })
-    }
-
-    const { error } = await supabase
-      .from('counters')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      return res.status(500).json({ error: error.message })
     }
 
     res.json({ message: 'Counter deleted successfully' })
@@ -271,4 +207,3 @@ router.delete('/:id', authenticate, async (req, res) => {
 })
 
 module.exports = router
-

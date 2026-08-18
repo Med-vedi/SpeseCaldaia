@@ -1,16 +1,11 @@
-const supabase = require('./supabase')
+const pool = require('./db')
 
 async function getOrganizationIdForUser(userId) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('organization_id')
-    .eq('id', userId)
-    .maybeSingle()
-
-  if (error || !data?.organization_id) {
-    return null
-  }
-  return data.organization_id
+  const { rows } = await pool.query(
+    'SELECT organization_id FROM public.users WHERE id = $1',
+    [userId]
+  )
+  return rows[0]?.organization_id ?? null
 }
 
 /**

@@ -1,27 +1,30 @@
 const express = require('express')
 const router = express.Router()
-const supabase = require('../lib/supabase')
-const { getAuthUserFromBearerToken } = require('../lib/authHelpers')
+const pool = require('../lib/db')
+const authenticate = require('../middleware/authenticate')
 
-// Middleware to verify authentication
-const authenticate = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No authorization token provided' })
-    }
+const COUNTER_JOIN_SELECT = `
+  cv.*,
+  c.id AS c_id,
+  c.name AS c_name,
+  c.counter_type AS c_counter_type,
+  c.organization_id AS c_organization_id,
+  c.user_id AS c_user_id
+`
 
-    const token = authHeader.split(' ')[1]
-    const { data: { user }, error } = await getAuthUserFromBearerToken(token)
-
-    if (error || !user) {
-      return res.status(401).json({ error: 'Invalid or expired token' })
-    }
-
-    req.user = user
-    next()
-  } catch (error) {
-    res.status(401).json({ error: 'Authentication failed' })
+function shapeWithCounters(row) {
+  const { c_id, c_name, c_counter_type, c_organization_id, c_user_id, ...cv } = row
+  return {
+    ...cv,
+    counters: c_id
+      ? {
+          id: c_id,
+          name: c_name,
+          counter_type: c_counter_type,
+          organization_id: c_organization_id,
+          user_id: c_user_id,
+        }
+      : null,
   }
 }
 
@@ -38,43 +41,16 @@ router.get('/', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'organization_id is required' })
     }
 
-    const { data: orgCounters, error: countersError } = await supabase
-      .from('counters')
-      .select('id, name, counter_type, user_id, organization_id')
-      .eq('organization_id', organization_id)
-      .order('counter_type', { ascending: true })
-      .order('name', { ascending: true })
+    const { rows } = await pool.query(
+      `SELECT ${COUNTER_JOIN_SELECT}
+       FROM public.counter_values cv
+       JOIN public.counters c ON c.id = cv.counter_id
+       WHERE c.organization_id = $1
+       ORDER BY cv.year DESC, cv.counter_id ASC`,
+      [organization_id]
+    )
 
-    if (countersError) {
-      return res.status(500).json({ error: countersError.message })
-    }
-
-    if (!orgCounters || orgCounters.length === 0) {
-      return res.json([])
-    }
-
-    const counterIds = orgCounters.map(c => c.id)
-
-    const { data: counterValues, error: valuesError } = await supabase
-      .from('counter_values')
-      .select('*')
-      .in('counter_id', counterIds)
-      .order('year', { ascending: false })
-      .order('counter_id', { ascending: true })
-
-    if (valuesError) {
-      return res.status(500).json({ error: valuesError.message })
-    }
-
-    const structuredData = (counterValues || []).map(cv => {
-      const counter = orgCounters.find(c => c.id === cv.counter_id)
-      return {
-        ...cv,
-        counters: counter || null
-      }
-    })
-
-    res.json(structuredData)
+    res.json(rows.map(shapeWithCounters))
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -88,29 +64,19 @@ router.get('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params
 
-    const { data, error } = await supabase
-      .from('counter_values')
-      .select(`
-        *,
-        counters (
-          id,
-          name,
-          counter_type,
-          organization_id,
-          user_id
-        )
-      `)
-      .eq('id', id)
-      .single()
+    const { rows } = await pool.query(
+      `SELECT ${COUNTER_JOIN_SELECT}
+       FROM public.counter_values cv
+       JOIN public.counters c ON c.id = cv.counter_id
+       WHERE cv.id = $1`,
+      [id]
+    )
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: 'Counter value not found' })
-      }
-      return res.status(500).json({ error: error.message })
+    if (!rows[0]) {
+      return res.status(404).json({ error: 'Counter value not found' })
     }
 
-    res.json(data)
+    res.json(shapeWithCounters(rows[0]))
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -145,56 +111,38 @@ router.post('/', authenticate, async (req, res) => {
     }
 
     // Check if counter exists
-    const { data: counter, error: counterError } = await supabase
-      .from('counters')
-      .select('id')
-      .eq('id', counter_id)
-      .single()
-
-    if (counterError || !counter) {
+    const { rows: counterRows } = await pool.query(
+      'SELECT id FROM public.counters WHERE id = $1',
+      [counter_id]
+    )
+    if (!counterRows[0]) {
       return res.status(404).json({ error: 'Counter not found' })
     }
 
     // Check if value already exists for this counter and year
-    const { data: existingValue } = await supabase
-      .from('counter_values')
-      .select('id')
-      .eq('counter_id', counter_id)
-      .eq('year', yearNum)
-      .single()
-
-    if (existingValue) {
+    const { rows: existingRows } = await pool.query(
+      'SELECT id FROM public.counter_values WHERE counter_id = $1 AND year = $2',
+      [counter_id, yearNum]
+    )
+    if (existingRows[0]) {
       return res.status(409).json({
         error: `Counter value for year ${yearNum} already exists. Use PUT to update.`
       })
     }
 
-    const { data, error } = await supabase
-      .from('counter_values')
-      .insert({
-        counter_id,
-        year: yearNum,
-        value: valueNum,
-        reading_date: reading_date || null,
-        notes: notes || null,
-      })
-      .select(`
-        *,
-        counters (
-          id,
-          name,
-          counter_type,
-          organization_id,
-          user_id
-        )
-      `)
-      .single()
+    const { rows } = await pool.query(
+      `WITH inserted AS (
+         INSERT INTO public.counter_values (counter_id, year, value, reading_date, notes)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *
+       )
+       SELECT ${COUNTER_JOIN_SELECT}
+       FROM inserted cv
+       JOIN public.counters c ON c.id = cv.counter_id`,
+      [counter_id, yearNum, valueNum, reading_date || null, notes || null]
+    )
 
-    if (error) {
-      return res.status(500).json({ error: error.message })
-    }
-
-    res.status(201).json(data)
+    res.status(201).json(shapeWithCounters(rows[0]))
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -211,13 +159,11 @@ router.put('/:id', authenticate, async (req, res) => {
     const { value, reading_date, notes } = req.body
 
     // Check if counter value exists
-    const { data: existingValue, error: fetchError } = await supabase
-      .from('counter_values')
-      .select('*')
-      .eq('id', id)
-      .single()
-
-    if (fetchError || !existingValue) {
+    const { rows: existingRows } = await pool.query(
+      'SELECT * FROM public.counter_values WHERE id = $1',
+      [id]
+    )
+    if (!existingRows[0]) {
       return res.status(404).json({ error: 'Counter value not found' })
     }
 
@@ -241,27 +187,26 @@ router.put('/:id', authenticate, async (req, res) => {
       updates.notes = notes || null
     }
 
-    const { data, error } = await supabase
-      .from('counter_values')
-      .update(updates)
-      .eq('id', id)
-      .select(`
-        *,
-        counters (
-          id,
-          name,
-          counter_type,
-          organization_id,
-          user_id
-        )
-      `)
-      .single()
-
-    if (error) {
-      return res.status(500).json({ error: error.message })
+    const setKeys = Object.keys(updates)
+    let updatedId = id
+    if (setKeys.length > 0) {
+      const setClause = setKeys.map((key, idx) => `${key} = $${idx + 2}`).join(', ')
+      const { rows: updateRows } = await pool.query(
+        `UPDATE public.counter_values SET ${setClause} WHERE id = $1 RETURNING id`,
+        [id, ...setKeys.map((key) => updates[key])]
+      )
+      updatedId = updateRows[0].id
     }
 
-    res.json(data)
+    const { rows } = await pool.query(
+      `SELECT ${COUNTER_JOIN_SELECT}
+       FROM public.counter_values cv
+       JOIN public.counters c ON c.id = cv.counter_id
+       WHERE cv.id = $1`,
+      [updatedId]
+    )
+
+    res.json(shapeWithCounters(rows[0]))
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -275,24 +220,13 @@ router.delete('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params
 
-    // Check if counter value exists
-    const { data: existingValue, error: fetchError } = await supabase
-      .from('counter_values')
-      .select('id')
-      .eq('id', id)
-      .single()
+    const { rows } = await pool.query(
+      'DELETE FROM public.counter_values WHERE id = $1 RETURNING id',
+      [id]
+    )
 
-    if (fetchError || !existingValue) {
+    if (!rows[0]) {
       return res.status(404).json({ error: 'Counter value not found' })
-    }
-
-    const { error } = await supabase
-      .from('counter_values')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      return res.status(500).json({ error: error.message })
     }
 
     res.json({ message: 'Counter value deleted successfully' })
@@ -302,4 +236,3 @@ router.delete('/:id', authenticate, async (req, res) => {
 })
 
 module.exports = router
-

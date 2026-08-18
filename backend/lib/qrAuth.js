@@ -13,11 +13,7 @@ function base64UrlDecode(value) {
 }
 
 function getQrSecret() {
-  return (
-    process.env.QR_AUTH_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    'dev-qr-auth-secret-change-in-production'
-  )
+  return process.env.QR_AUTH_SECRET || 'dev-qr-auth-secret-change-in-production'
 }
 
 function getQrUsers() {

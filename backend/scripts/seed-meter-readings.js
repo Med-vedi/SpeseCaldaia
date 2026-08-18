@@ -9,11 +9,11 @@
  *   SEED_ORGANIZATION_ID=default-org npm run seed-readings
  *   SEED_COUNTERS=0 npm run seed-readings   # only upsert readings, do not create counters
  *
- * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ * Env: DATABASE_URL
  */
 
 require('dotenv').config()
-const { createClient } = require('@supabase/supabase-js')
+const pool = require('../lib/db')
 
 const MIN_YEAR = 2024
 
@@ -51,42 +51,31 @@ function residentCounterName(username) {
  * For every user in the org: create missing heat / water / electric counters.
  * Create electric_common if the org has none.
  */
-async function syncCountersForOrganization(supabase, organizationId) {
+async function syncCountersForOrganization(organizationId) {
   if (process.env.SEED_COUNTERS === '0') {
     console.log('SEED_COUNTERS=0 — skipping counter creation.')
     return
   }
 
-  const { data: users, error: uErr } = await supabase
-    .from('users')
-    .select('id, username')
-    .eq('organization_id', organizationId)
+  const { rows: users } = await pool.query(
+    'SELECT id, username FROM public.users WHERE organization_id = $1',
+    [organizationId]
+  )
 
-  if (uErr) {
-    console.error('Could not load public.users:', uErr.message)
-    process.exit(1)
-  }
-  if (!users?.length) {
+  if (!users.length) {
     console.error(
-      `No public.users for organization_id="${organizationId}". Add profiles (auth + public.users), then re-run.`
+      `No public.users for organization_id="${organizationId}". Add profiles, then re-run.`
     )
     process.exit(1)
   }
 
-  const { data: existing, error: cErr } = await supabase
-    .from('counters')
-    .select('user_id, counter_type')
-    .eq('organization_id', organizationId)
-
-  if (cErr) {
-    console.error('Could not load counters:', cErr.message)
-    process.exit(1)
-  }
-
-  const list = existing || []
+  const { rows: existing } = await pool.query(
+    'SELECT user_id, counter_type FROM public.counters WHERE organization_id = $1',
+    [organizationId]
+  )
 
   const userHas = (userId, type) =>
-    list.some((c) => c.user_id === userId && c.counter_type === type)
+    existing.some((c) => c.user_id === userId && c.counter_type === type)
 
   const inserts = []
   for (const u of users) {
@@ -118,7 +107,7 @@ async function syncCountersForOrganization(supabase, organizationId) {
     }
   }
 
-  const hasCommon = list.some((c) => c.counter_type === 'electric_common')
+  const hasCommon = existing.some((c) => c.counter_type === 'electric_common')
   if (!hasCommon) {
     inserts.push({
       organization_id: organizationId,
@@ -135,10 +124,12 @@ async function syncCountersForOrganization(supabase, organizationId) {
     return
   }
 
-  const { error: iErr } = await supabase.from('counters').insert(inserts)
-  if (iErr) {
-    console.error('Failed to insert counters:', iErr.message)
-    process.exit(1)
+  for (const row of inserts) {
+    await pool.query(
+      `INSERT INTO public.counters (organization_id, user_id, counter_type, name)
+       VALUES ($1, $2, $3, $4)`,
+      [row.organization_id, row.user_id, row.counter_type, row.name]
+    )
   }
   console.log(
     `Created ${inserts.length} counter row(s) for org "${organizationId}" (${users.length} profil${users.length === 1 ? 'o' : 'i'}).`
@@ -146,36 +137,26 @@ async function syncCountersForOrganization(supabase, organizationId) {
 }
 
 async function main() {
-  const url = process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const organizationId = process.env.SEED_ORGANIZATION_ID || 'default-org'
-
-  if (!url || !key) {
-    console.error('Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend/.env')
+  if (!process.env.DATABASE_URL) {
+    console.error('Set DATABASE_URL in backend/.env')
     process.exit(1)
   }
 
-  const supabase = createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
+  const organizationId = process.env.SEED_ORGANIZATION_ID || 'default-org'
 
   const currentYear = new Date().getFullYear()
   const endYear = Math.max(currentYear, MIN_YEAR)
   const yearsAsc = []
   for (let y = MIN_YEAR; y <= endYear; y++) yearsAsc.push(y)
 
-  await syncCountersForOrganization(supabase, organizationId)
+  await syncCountersForOrganization(organizationId)
 
-  const { data: counters, error: cErr } = await supabase
-    .from('counters')
-    .select('id, name, counter_type, organization_id')
-    .eq('organization_id', organizationId)
+  const { rows: counters } = await pool.query(
+    'SELECT id, name, counter_type, organization_id FROM public.counters WHERE organization_id = $1',
+    [organizationId]
+  )
 
-  if (cErr) {
-    console.error('Failed to load counters:', cErr.message)
-    process.exit(1)
-  }
-  if (!counters?.length) {
+  if (!counters.length) {
     console.error('No counters for org after sync.')
     process.exit(1)
   }
@@ -193,14 +174,15 @@ async function main() {
     }
   }
 
-  const { error: uErr } = await supabase.from('counter_values').upsert(rows, {
-    onConflict: 'counter_id,year',
-    ignoreDuplicates: false,
-  })
-
-  if (uErr) {
-    console.error('Upsert failed:', uErr.message)
-    process.exit(1)
+  for (const row of rows) {
+    await pool.query(
+      `INSERT INTO public.counter_values (counter_id, year, value, notes)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (counter_id, year) DO UPDATE SET
+         value = EXCLUDED.value,
+         notes = EXCLUDED.notes`,
+      [row.counter_id, row.year, row.value, row.notes]
+    )
   }
 
   console.log(
@@ -208,7 +190,9 @@ async function main() {
   )
 }
 
-main().catch((e) => {
-  console.error(e)
-  process.exit(1)
-})
+main()
+  .then(() => pool.end())
+  .catch((e) => {
+    console.error(e)
+    process.exit(1)
+  })
