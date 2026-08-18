@@ -19,7 +19,7 @@ export function parseDecimalLike(v: unknown): number {
 
 /**
  * Build a CounterValue from GET /counter-values rows (snake_case, camelCase, nested counters).
- * Avoids fragile `in` / spread that dropped valid Supabase rows.
+ * Avoids fragile `in` / spread that dropped valid rows.
  */
 export function parseCounterValueFromApi(raw: unknown): CounterValue | null {
   if (!raw || typeof raw !== 'object') return null
@@ -54,7 +54,7 @@ export function parseCounterValueFromApi(raw: unknown): CounterValue | null {
   }
 }
 
-/** Supabase/Postgres DECIMAL often arrives as string; Ant InputNumber needs real numbers. */
+/** Postgres DECIMAL often arrives as string; Ant InputNumber needs real numbers. */
 export function normalizeCounterValue(cv: CounterValue): CounterValue {
   const n = parseDecimalLike(cv.value)
   return {

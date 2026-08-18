@@ -1,26 +1,8 @@
 const express = require('express')
 const router = express.Router()
-const supabase = require('../lib/supabase')
-const { getAuthUserFromBearerToken } = require('../lib/authHelpers')
+const pool = require('../lib/db')
+const authenticate = require('../middleware/authenticate')
 const { userMayAccessOrganization } = require('../lib/orgAccess')
-
-const authenticate = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No authorization token provided' })
-    }
-    const token = authHeader.split(' ')[1]
-    const { data: { user }, error } = await getAuthUserFromBearerToken(token)
-    if (error || !user) {
-      return res.status(401).json({ error: 'Invalid or expired token' })
-    }
-    req.user = user
-    next()
-  } catch {
-    res.status(401).json({ error: 'Authentication failed' })
-  }
-}
 
 function parseYear(y) {
   const n = parseInt(y, 10)
@@ -29,15 +11,13 @@ function parseYear(y) {
 }
 
 async function nextSortOrder(organizationId, year) {
-  const { data: maxRow } = await supabase
-    .from('gasoil_deliveries')
-    .select('sort_order')
-    .eq('organization_id', organizationId)
-    .eq('year', year)
-    .order('sort_order', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  return maxRow != null ? Number(maxRow.sort_order) + 1 : 0
+  const { rows } = await pool.query(
+    `SELECT sort_order FROM public.gasoil_deliveries
+     WHERE organization_id = $1 AND year = $2
+     ORDER BY sort_order DESC LIMIT 1`,
+    [organizationId, year]
+  )
+  return rows[0] ? Number(rows[0].sort_order) + 1 : 0
 }
 
 /**
@@ -58,17 +38,13 @@ router.get('/', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' })
     }
 
-    const { data, error } = await supabase
-      .from('gasoil_deliveries')
-      .select('*')
-      .eq('organization_id', organization_id)
-      .eq('year', year)
-      .order('sort_order', { ascending: true })
-
-    if (error) {
-      return res.status(500).json({ error: error.message })
-    }
-    res.json(data || [])
+    const { rows } = await pool.query(
+      `SELECT * FROM public.gasoil_deliveries
+       WHERE organization_id = $1 AND year = $2
+       ORDER BY sort_order ASC`,
+      [organization_id, year]
+    )
+    res.json(rows)
   } catch (e) {
     res.status(500).json({ error: e.message || 'Internal server error' })
   }
@@ -106,25 +82,23 @@ router.post('/', authenticate, async (req, res) => {
 
     const sort_order = await nextSortOrder(organization_id, year)
 
-    const { data, error } = await supabase
-      .from('gasoil_deliveries')
-      .insert({
+    const { rows } = await pool.query(
+      `INSERT INTO public.gasoil_deliveries
+         (organization_id, year, sort_order, label, liters, amount_eur, bill_date, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [
         organization_id,
         year,
         sort_order,
-        label: label || null,
-        liters: litersNum,
-        amount_eur: eurNum,
-        bill_date: bill_date || null,
-        notes: notes || null,
-      })
-      .select()
-      .single()
-
-    if (error) {
-      return res.status(500).json({ error: error.message })
-    }
-    res.status(201).json(data)
+        label || null,
+        litersNum,
+        eurNum,
+        bill_date || null,
+        notes || null,
+      ]
+    )
+    res.status(201).json(rows[0])
   } catch (e) {
     res.status(500).json({ error: e.message || 'Internal server error' })
   }
@@ -138,13 +112,13 @@ router.put('/:id', authenticate, async (req, res) => {
     const { id } = req.params
     const { label, liters, amount_eur, bill_date, notes, sort_order } = req.body
 
-    const { data: existing, error: fetchErr } = await supabase
-      .from('gasoil_deliveries')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle()
+    const { rows: existingRows } = await pool.query(
+      'SELECT * FROM public.gasoil_deliveries WHERE id = $1',
+      [id]
+    )
+    const existing = existingRows[0]
 
-    if (fetchErr || !existing) {
+    if (!existing) {
       return res.status(404).json({ error: 'Delivery not found' })
     }
 
@@ -179,17 +153,17 @@ router.put('/:id', authenticate, async (req, res) => {
       updates.sort_order = v
     }
 
-    const { data, error } = await supabase
-      .from('gasoil_deliveries')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (error) {
-      return res.status(500).json({ error: error.message })
+    const setKeys = Object.keys(updates)
+    if (setKeys.length === 0) {
+      return res.json(existing)
     }
-    res.json(data)
+
+    const setClause = setKeys.map((key, idx) => `${key} = $${idx + 2}`).join(', ')
+    const { rows } = await pool.query(
+      `UPDATE public.gasoil_deliveries SET ${setClause} WHERE id = $1 RETURNING *`,
+      [id, ...setKeys.map((key) => updates[key])]
+    )
+    res.json(rows[0])
   } catch (e) {
     res.status(500).json({ error: e.message || 'Internal server error' })
   }
@@ -202,13 +176,13 @@ router.delete('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params
 
-    const { data: existing, error: fetchErr } = await supabase
-      .from('gasoil_deliveries')
-      .select('id, organization_id')
-      .eq('id', id)
-      .maybeSingle()
+    const { rows: existingRows } = await pool.query(
+      'SELECT id, organization_id FROM public.gasoil_deliveries WHERE id = $1',
+      [id]
+    )
+    const existing = existingRows[0]
 
-    if (fetchErr || !existing) {
+    if (!existing) {
       return res.status(404).json({ error: 'Delivery not found' })
     }
 
@@ -217,10 +191,7 @@ router.delete('/:id', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' })
     }
 
-    const { error } = await supabase.from('gasoil_deliveries').delete().eq('id', id)
-    if (error) {
-      return res.status(500).json({ error: error.message })
-    }
+    await pool.query('DELETE FROM public.gasoil_deliveries WHERE id = $1', [id])
     res.json({ message: 'Deleted' })
   } catch (e) {
     res.status(500).json({ error: e.message || 'Internal server error' })

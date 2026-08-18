@@ -11,9 +11,9 @@ npm install
 
 2. Create a `.env` file in the backend directory:
 ```env
-SUPABASE_URL=your_supabase_url_here
-SUPABASE_ANON_KEY=your_supabase_anon_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+DATABASE_URL=your_neon_connection_string_here
+JWT_SECRET=use_a_long_random_secret
+JWT_EXPIRES_IN=7d
 PROD_FRONTEND_URL=https://your-app.vercel.app
 # Optional aliases (fallback): FRONTEND_URL or APP_URL
 QR_AUTH_SECRET=use_a_long_random_secret
@@ -22,7 +22,12 @@ PORT=3001
 NODE_ENV=development
 ```
 
-3. Start the server:
+3. Run the schema migration against your database:
+```bash
+npm run migrate:up
+```
+
+4. Start the server:
 ```bash
 npm start
 # or for development with auto-reload:

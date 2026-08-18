@@ -1,16 +1,17 @@
 # Spese Caldaia
 
-Monorepo for a boiler-expense management app with Supabase auth/data, an Express API, and a React frontend.
+Monorepo for a boiler-expense management app with Neon Postgres, an Express API, and a React frontend.
 
 ## Tech Stack
 
 - **Frontend**: React + TypeScript + Vite + Redux Toolkit Query + Ant Design + Tailwind CSS
-- **Backend API**: Node.js + Express + Supabase JS
-- **Database/Auth**: Supabase (local dev via Supabase CLI)
+- **Backend API**: Node.js + Express + `pg`
+- **Database**: Neon Postgres
+- **Auth**: custom JWT (`jsonwebtoken`) + bcrypt, implemented in `backend/lib/`
 
 ## Core Features
 
-- Authentication with Supabase (`username/password` and QR login flow)
+- Authentication (`username/password` and QR login flow)
 - Organization-scoped data access
 - Boiler accounting workflows:
   - utility bills (`Bollette`)
@@ -24,10 +25,11 @@ Monorepo for a boiler-expense management app with Supabase auth/data, an Express
 
 ```text
 /
-├── backend/                # Express API + Supabase config/migrations/scripts
+├── backend/                # Express API
 │   ├── routes/             # API endpoints
-│   ├── lib/                # Supabase/auth helpers
-│   └── supabase/           # Local Supabase config, migrations, seed
+│   ├── lib/                # DB pool, JWT, password hashing, QR auth, org access
+│   ├── middleware/         # Shared auth middleware
+│   └── migrations/         # node-pg-migrate schema migrations
 ├── frontend/               # React app (Vite)
 │   └── src/
 │       ├── pages/
@@ -41,7 +43,7 @@ Monorepo for a boiler-expense management app with Supabase auth/data, an Express
 
 - Node.js 18+ (LTS recommended)
 - npm
-- Supabase CLI (`npx supabase` is used in commands below)
+- A Neon Postgres project (or any Postgres instance)
 
 ## Local Setup
 
@@ -52,39 +54,31 @@ cd backend && npm install
 cd ../frontend && npm install
 ```
 
-### 2) Start local Supabase
-
-```bash
-cd backend
-npx supabase start
-```
-
-After startup, copy API URL and keys from:
-
-```bash
-npx supabase status
-```
-
-### 3) Configure environment variables
+### 2) Configure environment variables
 
 Create `backend/.env`:
 
 ```env
-SUPABASE_URL=http://127.0.0.1:54321
-SUPABASE_SERVICE_ROLE_KEY=<service_role_key_from_supabase_status>
-SUPABASE_ANON_KEY=<anon_key_from_supabase_status>
+DATABASE_URL=<your Neon connection string>
+JWT_SECRET=<a long random secret>
+JWT_EXPIRES_IN=7d
 PROD_FRONTEND_URL=http://localhost:5173
-QR_AUTH_SECRET=<long_random_secret>
+QR_AUTH_SECRET=<a long random secret>
 PORT=3001
 NODE_ENV=development
 ```
 
-Create `frontend/.env`:
+Create `frontend/.env` (only needed if the API isn't on the default `http://localhost:3001/api`):
 
 ```env
 VITE_API_URL=http://localhost:3001/api
-VITE_SUPABASE_URL=http://127.0.0.1:54321
-VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY=<anon_key_from_supabase_status>
+```
+
+### 3) Run the schema migration
+
+```bash
+cd backend
+npm run migrate:up
 ```
 
 ### 4) Run backend and frontend
@@ -107,7 +101,6 @@ npm run dev
 
 - Frontend: `http://localhost:5173`
 - Backend health: `http://localhost:3001/health`
-- Supabase Studio: `http://127.0.0.1:54323`
 
 ## Useful Commands
 
@@ -115,9 +108,9 @@ Backend (`backend/`):
 
 - `npm run dev` - start API with file watch
 - `npm run start` - start API without watch
+- `npm run migrate:up` - apply pending schema migrations
 - `npm run seed-readings` - seed meter readings data
 - `npm run generate-qr-codes` - generate QR login payloads/links
-- `npx supabase start|stop|status` - manage local Supabase
 
 Frontend (`frontend/`):
 
@@ -128,6 +121,6 @@ Frontend (`frontend/`):
 
 ## Notes
 
-- Auth data lives in `auth.users`; app profile data lives in `public.users`.
-- The backend enforces organization-level access checks before serving data.
+- Auth and profile data both live in `public.users` (see `backend/ARCHITECTURE.md`) — passwords are bcrypt hashes, sessions are stateless JWTs.
+- The backend enforces organization-level access checks in application code (`backend/lib/orgAccess.js`); there is no database-level RLS.
 - Deployments are typically built from `frontend/` (see root `vercel.json`).

@@ -8,6 +8,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  // Reuse backend/.env for VITE_* Supabase vars (only VITE_ keys are exposed to the client).
+  // Reuse backend/.env for VITE_* vars (only VITE_ keys are exposed to the client).
   envDir: path.resolve(__dirname, '../backend'),
 })

@@ -1,26 +1,8 @@
 const express = require('express')
 const router = express.Router()
-const supabase = require('../lib/supabase')
-const { getAuthUserFromBearerToken } = require('../lib/authHelpers')
+const pool = require('../lib/db')
+const authenticate = require('../middleware/authenticate')
 const { userMayAccessOrganization } = require('../lib/orgAccess')
-
-const authenticate = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No authorization token provided' })
-    }
-    const token = authHeader.split(' ')[1]
-    const { data: { user }, error } = await getAuthUserFromBearerToken(token)
-    if (error || !user) {
-      return res.status(401).json({ error: 'Invalid or expired token' })
-    }
-    req.user = user
-    next()
-  } catch {
-    res.status(401).json({ error: 'Authentication failed' })
-  }
-}
 
 function parseYear(y) {
   const n = parseInt(y, 10)
@@ -29,26 +11,21 @@ function parseYear(y) {
 }
 
 async function buildYearlyPayload(organizationId, year) {
-  const { data: settings } = await supabase
-    .from('yearly_organization_settings')
-    .select('*')
-    .eq('organization_id', organizationId)
-    .eq('year', year)
-    .maybeSingle()
+  const { rows: settingsRows } = await pool.query(
+    'SELECT * FROM public.yearly_organization_settings WHERE organization_id = $1 AND year = $2',
+    [organizationId, year]
+  )
+  const settings = settingsRows[0] || null
 
-  const { data: deliveries, error: delErr } = await supabase
-    .from('gasoil_deliveries')
-    .select('*')
-    .eq('organization_id', organizationId)
-    .eq('year', year)
-    .order('sort_order', { ascending: true })
+  const { rows: deliveries } = await pool.query(
+    `SELECT * FROM public.gasoil_deliveries
+     WHERE organization_id = $1 AND year = $2
+     ORDER BY sort_order ASC`,
+    [organizationId, year]
+  )
 
-  if (delErr) {
-    throw new Error(delErr.message)
-  }
-
-  const totalLiters = (deliveries || []).reduce((s, d) => s + Number(d.liters || 0), 0)
-  const totalEur = (deliveries || []).reduce((s, d) => s + Number(d.amount_eur || 0), 0)
+  const totalLiters = deliveries.reduce((s, d) => s + Number(d.liters || 0), 0)
+  const totalEur = deliveries.reduce((s, d) => s + Number(d.amount_eur || 0), 0)
   const fallback =
     settings?.gasolio_fallback != null && settings.gasolio_fallback !== ''
       ? Number(settings.gasolio_fallback)
@@ -63,7 +40,7 @@ async function buildYearlyPayload(organizationId, year) {
     manutenzione: settings ? Number(settings.manutenzione) : 120,
     funzionamento_servizio_pct: settings ? Number(settings.funzionamento_servizio_pct) : 20,
     gasolio_fallback: fallback,
-    gasoil_deliveries: deliveries || [],
+    gasoil_deliveries: deliveries,
     computed: {
       gasolio_per_liter: gasolioPerLiter,
       fattura_gasolio_total: totalEur,
@@ -112,28 +89,19 @@ router.get('/years', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' })
     }
 
-    const { data: settingsRows, error: settingsErr } = await supabase
-      .from('yearly_organization_settings')
-      .select('year')
-      .eq('organization_id', organization_id)
-
-    if (settingsErr) {
-      return res.status(500).json({ error: settingsErr.message })
-    }
-
-    const { data: deliveriesRows, error: deliveriesErr } = await supabase
-      .from('gasoil_deliveries')
-      .select('year')
-      .eq('organization_id', organization_id)
-
-    if (deliveriesErr) {
-      return res.status(500).json({ error: deliveriesErr.message })
-    }
+    const { rows: settingsRows } = await pool.query(
+      'SELECT year FROM public.yearly_organization_settings WHERE organization_id = $1',
+      [organization_id]
+    )
+    const { rows: deliveriesRows } = await pool.query(
+      'SELECT year FROM public.gasoil_deliveries WHERE organization_id = $1',
+      [organization_id]
+    )
 
     const nowYear = new Date().getFullYear()
     const set = new Set([nowYear, nowYear + 1])
-    ;(settingsRows || []).forEach((r) => set.add(Number(r.year)))
-    ;(deliveriesRows || []).forEach((r) => set.add(Number(r.year)))
+    settingsRows.forEach((r) => set.add(Number(r.year)))
+    deliveriesRows.forEach((r) => set.add(Number(r.year)))
 
     const years = Array.from(set)
       .filter((y) => Number.isFinite(y))
@@ -175,12 +143,11 @@ router.put('/', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' })
     }
 
-    const { data: existing } = await supabase
-      .from('yearly_organization_settings')
-      .select('*')
-      .eq('organization_id', organization_id)
-      .eq('year', year)
-      .maybeSingle()
+    const { rows: existingRows } = await pool.query(
+      'SELECT * FROM public.yearly_organization_settings WHERE organization_id = $1 AND year = $2',
+      [organization_id, year]
+    )
+    const existing = existingRows[0] || null
 
     const row = {
       organization_id,
@@ -232,12 +199,27 @@ router.put('/', authenticate, async (req, res) => {
       }
     }
 
-    const { error: upsertErr } = await supabase.from('yearly_organization_settings').upsert(row, {
-      onConflict: 'organization_id,year',
-    })
-    if (upsertErr) {
-      return res.status(500).json({ error: upsertErr.message })
-    }
+    await pool.query(
+      `INSERT INTO public.yearly_organization_settings
+         (organization_id, year, acqua, corrente, manutenzione, funzionamento_servizio_pct, gasolio_fallback)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (organization_id, year) DO UPDATE SET
+         acqua = EXCLUDED.acqua,
+         corrente = EXCLUDED.corrente,
+         manutenzione = EXCLUDED.manutenzione,
+         funzionamento_servizio_pct = EXCLUDED.funzionamento_servizio_pct,
+         gasolio_fallback = EXCLUDED.gasolio_fallback,
+         updated_at = NOW()`,
+      [
+        row.organization_id,
+        row.year,
+        row.acqua,
+        row.corrente,
+        row.manutenzione,
+        row.funzionamento_servizio_pct,
+        row.gasolio_fallback,
+      ]
+    )
 
     const payload = await buildYearlyPayload(organization_id, year)
     res.json(payload)
